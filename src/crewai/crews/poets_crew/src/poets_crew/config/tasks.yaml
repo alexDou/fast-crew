@@ -1,0 +1,53 @@
+analyze_image_task:
+  description: >
+    Use the VisionTool to analyze the image at this path: {image_path}
+    You MUST call the VisionTool with image_path_url parameter set to: {image_path}
+    Describe in detail what you see in the image.
+  expected_output: >
+    A concise, but accurate description of the image content.
+    A short keywords list reflecting the image content, consisting of only essential keywords.
+    Keywords could, but not necessarily should, be a combination of 2 and max 3 words, e.g.: "clear sky", "pouring rain", "red wine".
+  agent: image_analyzer
+  output_file: output/image_analysis.md
+
+poem_task_1:
+  description: >
+    Based on the image analysis provided in the context, create a poem that captures the essence of what was described.
+    You are free to choose a stanza, meter, form, and rhyme.
+  expected_output: >
+    A conventionally formatted poem according to the chosen poem style.
+    Do not provide anything else but the poem.
+  agent: poet_1
+  output_file: output/poet_1.md
+
+# poem_task_2:
+#   description: >
+#     Based on the image analysis provided in the context, create a poem that captures the essence of what was described.
+#     You are free to choose a stanza, meter, form, and rhyme.
+#   expected_output: >
+#     A conventionally formatted poem according to the chosen poem style.
+#     Do not provide anything else but the poem.
+#   agent: poet_2
+#   output_file: output/poet_2.md
+
+poem_task_free:
+  description: >
+    Based on the image analysis provided in the context, create a poem that captures the essence of what was described.
+    You are free to choose a stanza, meter, form, and rhyme.
+  expected_output: >
+    A conventionally formatted poem according to the chosen poem style.
+    Do not provide anything else but the poem.
+  agent: poet_free
+  output_file: output/poet_free.md
+
+critic_task:
+  description: >
+    Review the three poems provided in the context and analyze their quality, style, and effectiveness.
+    Compare them and determine which one best captures the essence of the image.
+    Provide detailed criticism for each poem.
+  expected_output: >
+    A fully detailed critical analysis report with sections for each poem.
+    Include your final recommendation for the best poem.
+    Formatted as markdown without '```'
+  agent: critic
+  output_file: output/critic.md
