@@ -44,12 +44,21 @@ class PoemRead(BaseModel):
 class PoemCreate(PoemBase):
     model_config = ConfigDict(extra="forbid")
 
-    poem: Annotated[str, Field(pattern=r"^/[^\s]*$", default=None)]
 
-
-class PoemCreateInternal(PoemCreate):
+class PoemCreateInternal(BaseModel):
+    """Internal schema for creating poems without timestamp serialization."""
+    model_config = ConfigDict(extra="forbid")
+    
     user_id: int
+    poem_source_id: int
+    poem: Annotated[str, Field(min_length=2, max_length=6320)]
     critic_choice: bool = False
+    created_at: datetime
+    updated_at: datetime | None = None
+    
+    @field_validator("poem")
+    def validate_and_sanitize_path(cls, v: str) -> str:
+        return sanitize(v)
 
 
 class PoemUpdate(BaseModel):

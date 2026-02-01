@@ -57,7 +57,7 @@ async def read_users(
     return response
 
 
-@router.get("/user/me/", response_model=UserRead)
+@router.get("/user/me", response_model=UserRead)
 async def read_users_me(request: Request, current_user: Annotated[dict, Depends(get_current_user)]) -> dict:
     return current_user
 

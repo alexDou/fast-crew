@@ -55,6 +55,7 @@ class CrewAIService:
         poems: Dict[str, str],
         critic_choice: str | None
     ):
+        from datetime import datetime, UTC
         from ..crud.crud_poems import crud_poems
         from ..schemas.poem import PoemCreateInternal
         
@@ -75,11 +76,16 @@ class CrewAIService:
                     poem_first_line == critic_first_line
                 )
                 
+                # Generate datetime directly to avoid serialization issues
+                now = datetime.now(UTC).replace(tzinfo=None)
+                
                 poem_data = PoemCreateInternal(
                     user_id=user_id,
                     poem_source_id=poem_source_id,
                     poem=poem_text,
-                    critic_choice=is_critic_choice
+                    critic_choice=is_critic_choice,
+                    created_at=now,
+                    updated_at=None
                 )
                 
                 await crud_poems.create(db=db, object=poem_data)
@@ -96,30 +102,87 @@ class CrewAIService:
     ) -> Dict[str, Any]:
         try:
             logger.info(f"Starting CrewAI poem generation for source_id={poem_source_id}, image={image_path}")
-            from ...crewai.crews.poets_crew.src.poets_crew.crew import PoetsCrew
+            
+            # Direct import - crewai_project is in parent directory
+            import importlib.util
+            from pathlib import Path
+            
+            # CrewAI expects working directory to be the crew root for knowledge sources
+            # Detect if running in Docker or locally
+            if os.path.exists("/code/crewai_project"):
+                base_path = Path("/code")
+            else:
+                # Find project root by looking for pyproject.toml
+                current = Path(__file__).resolve()
+                while current.parent != current:
+                    if (current / "pyproject.toml").exists():
+                        base_path = current
+                        break
+                    current = current.parent
+                else:
+                    # Fallback to 3 levels up from this file
+                    base_path = Path(__file__).resolve().parent.parent.parent
+            
+            crew_root = base_path / "crewai_project" / "crews" / "poets_crew"
+            logger.info(f"Base path: {base_path}, Crew root: {crew_root}, Exists: {crew_root.exists()}")
+            original_cwd = os.getcwd()
+            # Change to crew root for knowledge files
+            os.chdir(str(crew_root))
+            logger.info(f"Changed directory to {crew_root}")
+            
+            crew_path = str(crew_root / "src" / "poets_crew" / "crew.py")
+            logger.info(f"Loading PoetsCrew from: {crew_path}")
+            spec = importlib.util.spec_from_file_location("poets_crew.crew", crew_path)
+            crew_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(crew_module)
+            PoetsCrew = crew_module.PoetsCrew
+            
+            # Restore original working directory
+            os.chdir(original_cwd)
 
             inputs = {"image_path": image_path}
             if enhance:
-                inputs["enhance"] = enhance
+                inputs["enhance"] = f"\n\nAdditional context from the user: {enhance}"
+            else:
+                inputs["enhance"] = ""
             
             logger.info(f"Kicking off PoetsCrew with inputs: {inputs}")
-            result = PoetsCrew().crew().kickoff(inputs=inputs)
+            
+            # Create crew instance and set image path for VisionTool
+            poets_crew = PoetsCrew()
+            poets_crew.set_image_path(image_path)
+            
+            result = poets_crew.crew().kickoff(inputs=inputs)
             logger.info(f"PoetsCrew completed successfully")
 
+            # Tasks: 0=analyze_image, 1=poem_1, 2=poem_free, 3=critic
             image_analysis = result.tasks_output[0].raw if len(result.tasks_output) > 0 else None
             poem_1 = result.tasks_output[1].raw if len(result.tasks_output) > 1 else None
-            poem_2 = result.tasks_output[2].raw if len(result.tasks_output) > 2 else None
-            poem_free = result.tasks_output[3].raw if len(result.tasks_output) > 3 else None
-            critic = result.tasks_output[4].raw if len(result.tasks_output) > 4 else None
+            poem_free = result.tasks_output[2].raw if len(result.tasks_output) > 2 else None
+            critic = result.tasks_output[3].raw if len(result.tasks_output) > 3 else None
             
             poems = {
                 "poem_1": poem_1,
-                "poem_2": poem_2,
                 "poem_free": poem_free
             }
             
+            # Save poems using new async engine in this thread's event loop
+            from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+            from ..core.config import settings
+            
             async def save_results():
-                async with db_session_maker() as db:
+                # Create a new engine and session factory for this thread
+                database_url = f"{settings.POSTGRES_ASYNC_PREFIX}{settings.POSTGRES_URI}"
+                engine = create_async_engine(
+                    database_url,
+                    echo=False,
+                    future=True,
+                )
+                async_session = async_sessionmaker(
+                    engine, class_=AsyncSession, expire_on_commit=False
+                )
+                
+                async with async_session() as db:
                     try:
                         await self._save_poems(
                             db=db,
@@ -142,9 +205,16 @@ class CrewAIService:
                             poem_source_id=poem_source_id,
                             status="error"
                         )
-                        raise e
+                    finally:
+                        await engine.dispose()
             
-            asyncio.run(save_results())
+            # Use new event loop in thread pool
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(save_results())
+            finally:
+                loop.close()
             
             return {
                 "image_analysis": image_analysis,
@@ -156,15 +226,39 @@ class CrewAIService:
             logger.error(f"CRITICAL ERROR in CrewAI service for source_id={poem_source_id}: {e}")
             logger.error(f"Full traceback:\n{traceback.format_exc()}")
             
-            async def update_error():
-                async with db_session_maker() as db:
-                    await self._update_poem_source_status(
-                        db=db,
-                        poem_source_id=poem_source_id,
-                        status="error"
-                    )
+            # Update error status using new async engine in this thread's event loop
+            from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+            from ..core.config import settings
             
-            asyncio.run(update_error())
+            async def update_error():
+                # Create a new engine and session factory for this thread
+                database_url = f"{settings.POSTGRES_ASYNC_PREFIX}{settings.POSTGRES_URI}"
+                engine = create_async_engine(
+                    database_url,
+                    echo=False,
+                    future=True,
+                )
+                async_session = async_sessionmaker(
+                    engine, class_=AsyncSession, expire_on_commit=False
+                )
+                
+                async with async_session() as db:
+                    try:
+                        await self._update_poem_source_status(
+                            db=db,
+                            poem_source_id=poem_source_id,
+                            status="error"
+                        )
+                    finally:
+                        await engine.dispose()
+            
+            # Use new event loop in thread pool
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(update_error())
+            finally:
+                loop.close()
             # Don't re-raise - log and mark as error instead
             logger.error(f"Poem generation failed for source_id={poem_source_id}")
     

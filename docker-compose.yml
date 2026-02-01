@@ -24,7 +24,7 @@ services:
       - ./src/migrations:/code/migrations
       - ./src/alembic.ini:/code/alembic.ini
       - ./media:/code/media
-      - ../crewai/crews/poets_crew:/home/aldou/codes/ai/crewai/crews/poets_crew:ro
+      - ./crewai_project:/code/crewai_project:ro
 
   worker:
     build: 
@@ -42,7 +42,7 @@ services:
       - ./src/migrations:/code/migrations
       - ./src/alembic.ini:/code/alembic.ini
       - ./media:/code/media
-      - ../crewai/crews/poets_crew:/home/aldou/codes/ai/crewai/crews/poets_crew:ro
+      - ./crewai_project:/code/crewai_project:ro
 
   db:
     image: postgres:13

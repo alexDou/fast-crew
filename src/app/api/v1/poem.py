@@ -40,13 +40,13 @@ async def write_poem(
 
 @router.get("/poems/{poem_source_id}", response_model=PaginatedListResponse[PoemRead])
 @cache(
-    key_prefix="{username}_poems:page_{page}:items_per_page:{items_per_page}",
-    resource_id_name="username",
+    key_prefix="{poem_source_id}_poems:page_{page}:items_per_page:{items_per_page}",
+    resource_id_name="poem_source_id",
     expiration=60,
 )
 async def read_poems(
     request: Request,
-    poem_source_id: str,
+    poem_source_id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_user: Annotated[dict, Depends(get_current_user)],
     page: int = 1,
@@ -60,7 +60,6 @@ async def read_poems(
         offset=compute_offset(page, items_per_page),
         limit=items_per_page,
         poem_source_id=poem_source_id,
-        is_deleted=False,
     )
 
     response: dict[str, Any] = paginated_response(crud_data=poems_data, page=page, items_per_page=items_per_page)

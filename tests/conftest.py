@@ -82,7 +82,6 @@ def sample_user_read():
         name=fake.name(),
         username=fake.user_name(),
         email=fake.email(),
-        profile_image_url=fake.image_url(),
         is_superuser=False,
         created_at=fake.date_time(),
         updated_at=fake.date_time(),

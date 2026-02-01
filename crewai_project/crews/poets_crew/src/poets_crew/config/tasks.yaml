@@ -3,10 +3,12 @@ analyze_image_task:
     Use the VisionTool to analyze the image at this path: {image_path}
     You MUST call the VisionTool with image_path_url parameter set to: {image_path}
     Describe in detail what you see in the image.
+    {enhance}
   expected_output: >
     A concise, but accurate description of the image content.
     A short keywords list reflecting the image content, consisting of only essential keywords.
     Keywords could, but not necessarily should, be a combination of 2 and max 3 words, e.g.: "clear sky", "pouring rain", "red wine".
+    If additional context or enhancement was provided, incorporate that information into the description naturally.
   agent: image_analyzer
   output_file: output/image_analysis.md
 
@@ -42,7 +44,7 @@ poem_task_free:
 
 critic_task:
   description: >
-    Review the three poems provided in the context and analyze their quality, style, and effectiveness.
+    Review the two poems provided in the context and analyze their quality, style, and effectiveness.
     Compare them and determine which one best captures the essence of the image.
     Provide detailed criticism for each poem.
   expected_output: >
