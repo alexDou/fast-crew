@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, MetaData, String, Table, insert, select
+from sqlalchemy import Boolean, Column, DateTime, Integer, MetaData, String, Table, insert, select
 from sqlalchemy.dialects.postgresql import UUID
 from uuid6 import uuid7  # 126
 
@@ -42,7 +42,6 @@ async def create_first_user(session: AsyncSession) -> None:
                 Column("deleted_at", DateTime),
                 Column("is_deleted", Boolean, default=False, index=True),
                 Column("is_superuser", Boolean, default=False),
-                Column("tier_id", Integer, ForeignKey("tier.id"), index=True),
             )
 
             data = {

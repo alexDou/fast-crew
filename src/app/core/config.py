@@ -123,21 +123,6 @@ class RedisQueueSettings(BaseSettings):
     REDIS_QUEUE_PORT: int = 6379
 
 
-class RedisRateLimiterSettings(BaseSettings):
-    REDIS_RATE_LIMIT_HOST: str = "localhost"
-    REDIS_RATE_LIMIT_PORT: int = 6379
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def REDIS_RATE_LIMIT_URL(self) -> str:
-        return f"redis://{self.REDIS_RATE_LIMIT_HOST}:{self.REDIS_RATE_LIMIT_PORT}"
-
-
-class DefaultRateLimitSettings(BaseSettings):
-    DEFAULT_RATE_LIMIT_LIMIT: int = 10
-    DEFAULT_RATE_LIMIT_PERIOD: int = 3600
-
-
 class CRUDAdminSettings(BaseSettings):
     CRUD_ADMIN_ENABLED: bool = True
     CRUD_ADMIN_MOUNT_PATH: str = "/admin"
@@ -185,8 +170,6 @@ class Settings(
     RedisCacheSettings,
     ClientSideCacheSettings,
     RedisQueueSettings,
-    RedisRateLimiterSettings,
-    DefaultRateLimitSettings,
     CRUDAdminSettings,
     EnvironmentSettings,
     CORSSettings,

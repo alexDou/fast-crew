@@ -15,7 +15,6 @@ class UserBase(BaseModel):
 class User(TimestampSchema, UserBase, UUIDSchema, PersistentDeletion):
     hashed_password: str
     is_superuser: bool = False
-    tier_id: int | None = None
 
 
 class UserRead(BaseModel):
@@ -24,7 +23,6 @@ class UserRead(BaseModel):
     name: Annotated[str, Field(min_length=2, max_length=30, examples=["User Userson"])]
     username: Annotated[str, Field(min_length=2, max_length=20, pattern=r"^[a-z0-9]+$", examples=["userson"])]
     email: Annotated[EmailStr, Field(examples=["user.userson@example.com"])]
-    tier_id: int | None
 
 
 class UserCreate(UserBase):
@@ -49,10 +47,6 @@ class UserUpdate(BaseModel):
 
 class UserUpdateInternal(UserUpdate):
     updated_at: datetime
-
-
-class UserTierUpdate(BaseModel):
-    tier_id: int
 
 
 class UserDelete(BaseModel):
