@@ -1,9 +1,7 @@
 """Service for running CrewAI poetry generation in the background."""
-import sys
 import os
 import logging
 import traceback
-from pathlib import Path
 from typing import Dict, Any
 import asyncio
 from concurrent.futures import ThreadPoolExecutor

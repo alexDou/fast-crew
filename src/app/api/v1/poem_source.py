@@ -13,9 +13,7 @@ from ...core.db.database import async_get_db, local_session
 from ...core.exceptions.http_exceptions import ForbiddenException, NotFoundException
 from ...core.utils.cache import cache
 from ...crud.crud_poem_sources import crud_poem_sources
-from ...crud.crud_users import crud_users
 from ...schemas.poem_source import PoemSourceCreateInternal, PoemSourceRead, PoemSourceUpdate
-from ...schemas.user import UserRead
 from ...services.crewai_service import crewai_service
 
 router = APIRouter(tags=["poems_source"])

@@ -2,7 +2,7 @@ import os
 from enum import Enum
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 

@@ -9,9 +9,7 @@ from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import ForbiddenException, NotFoundException
 from ...core.utils.cache import cache
 from ...crud.crud_poems import crud_poems
-from ...crud.crud_users import crud_users
 from ...schemas.poem import PoemCreate, PoemCreateInternal, PoemRead, PoemUpdate
-from ...schemas.user import UserRead
 
 router = APIRouter(tags=["poems"])
 
