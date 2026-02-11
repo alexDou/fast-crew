@@ -6,7 +6,7 @@ from typing import Annotated, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from ..core.schemas import TimestampSchema
+from ..core.schemas import PersistentDeletion, TimestampSchema
 
 
 base_media_path = os.path.join(os.getcwd(), "media/")
@@ -23,7 +23,7 @@ class PoemBase(TimestampSchema, BaseModel):
         return sanitize(v)
 
 
-class Poem(PoemBase):
+class Poem(PoemBase, PersistentDeletion):
   user_id: int
   critic_choice: bool = False
 
@@ -73,5 +73,8 @@ class PoemUpdateInternal(PoemUpdate):
 
 
 class PoemDelete(BaseModel):
-    pass
+    model_config = ConfigDict(extra="forbid")
+
+    is_deleted: bool
+    deleted_at: datetime
 

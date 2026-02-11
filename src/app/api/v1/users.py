@@ -119,7 +119,7 @@ async def erase_user(
     await blacklist_token(token=token, db=db)
     return {"message": "User deleted"}
 
-
+# hard delete from DB
 @router.delete("/db_user/{username}", dependencies=[Depends(get_current_superuser)])
 async def erase_db_user(
     request: Request,

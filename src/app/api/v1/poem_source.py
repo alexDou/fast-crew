@@ -245,7 +245,7 @@ async def erase_poem_source(
 
     return {"message": "Poem deleted"}
 
-
+# hard delete from DB
 @router.delete("/db_poem_source/{id}", dependencies=[Depends(get_current_superuser)])
 @cache("{id}_poem_source_cache", resource_id_name="id", to_invalidate_extra={"{id}_poems": "{id}"})
 async def erase_db_poem_source(

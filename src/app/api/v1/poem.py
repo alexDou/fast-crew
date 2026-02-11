@@ -60,6 +60,7 @@ async def read_poems(
         offset=compute_offset(page, items_per_page),
         limit=items_per_page,
         poem_source_id=poem_source_id,
+        is_deleted=False,
     )
 
     response: dict[str, Any] = paginated_response(crud_data=poems_data, page=page, items_per_page=items_per_page)
@@ -78,7 +79,7 @@ async def read_poem(
         raise ForbiddenException()
 
     db_poem = await crud_poems.get(
-        db=db, id=id, created_by_user_id=current_user["id"], is_deleted=False, schema_to_select=PoemRead
+        db=db, id=id, user_id=current_user["id"], is_deleted=False, schema_to_select=PoemRead
     )
     if db_poem is None:
         raise NotFoundException("Poem not found")
@@ -98,7 +99,7 @@ async def patch_poem(
     if not current_user:
         raise ForbiddenException()
 
-    db_poem = await crud_poems.get(db=db, id=id, is_deleted=False, schema_to_select=PoemRead)
+    db_poem = await crud_poems.get(db=db, id=id, schema_to_select=PoemRead)
     if db_poem is None:
         raise NotFoundException("Poem not found")
 
@@ -117,7 +118,7 @@ async def erase_poem(
     if not current_user:
         raise ForbiddenException()
 
-    db_poem = await crud_poems.get(db=db, id=id, is_deleted=False, schema_to_select=PoemRead)
+    db_poem = await crud_poems.get(db=db, id=id, schema_to_select=PoemRead)
     if db_poem is None:
         raise NotFoundException("Poem not found")
 
@@ -125,7 +126,7 @@ async def erase_poem(
 
     return {"message": "Poem deleted"}
 
-
+# hard delete from DB
 @router.delete("/db_poem/{id}", dependencies=[Depends(get_current_superuser)])
 @cache("{id}_poem_cache", resource_id_name="id", to_invalidate_extra={"{id}_poems": "{id}"})
 async def erase_db_poem(
@@ -137,7 +138,7 @@ async def erase_db_poem(
     if not current_user:
         raise ForbiddenException()
 
-    db_poem = await crud_poems.get(db=db, id=id, is_deleted=False, schema_to_select=PoemRead)
+    db_poem = await crud_poems.get(db=db, id=id, sschema_to_select=PoemRead)
     if db_poem is None:
         raise NotFoundException("Poem not found")
 
