@@ -1,6 +1,6 @@
-# Contributing to FastAPI-boilerplate
+# Contributing to Fast Crews
 
-Thank you for your interest in contributing to FastAPI-boilerplate! This guide is meant to make it easy for you to get started.
+Thank you for your interest in contributing to Fast Crews! This guide is meant to make it easy for you to get started.
 Contributions are appreciated, even if just reporting bugs, documenting stuff or answering questions. To contribute with a feature:
 
 ## Setting Up Your Development Environment
@@ -103,9 +103,3 @@ After making your changes:
 
 - Address any feedback from code reviews.
 - Once approved, your contributions will be merged into the main branch.
-
-## Code of Conduct
-
-Please adhere to our [Code of Conduct](CODE_OF_CONDUCT.md) to maintain a welcoming and inclusive environment.
-
-Thank you for contributing to FastAPI-boilerplate🚀

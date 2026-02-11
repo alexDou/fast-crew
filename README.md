@@ -15,5 +15,13 @@ FastAPI that serves a purpose to be a gateway to multiagent AI flows orchestrate
 - Openrouter
 - LLMS
 
+### Install
+
+`uv sync`
+
+### Run
+
+`uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
+
 ### Based on - Benavlabs FastAPI Boilerplate
 (https://github.com/benavlabs/fastapi-boilerplate)
