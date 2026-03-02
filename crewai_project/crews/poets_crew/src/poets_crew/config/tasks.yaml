@@ -1,21 +1,11 @@
-analyze_image_task:
-  description: >
-    Use the VisionTool to analyze the image at this path: {image_path}
-    You MUST call the VisionTool with image_path_url parameter set to: {image_path}
-    Describe in detail what you see in the image.
-    {enhance}
-  expected_output: >
-    A concise, but accurate description of the image content.
-    A short keywords list reflecting the image content, consisting of only essential keywords.
-    Keywords could, but not necessarily should, be a combination of 2 and max 3 words, e.g.: "clear sky", "pouring rain", "red wine".
-    If additional context or enhancement was provided, incorporate that information into the description naturally.
-  agent: image_analyzer
-  output_file: output/image_analysis.md
-
 poem_task_1:
   description: >
-    Based on the image analysis provided in the context, create a poem that captures the essence of what was described.
+    Based on the image analysis below, create a poem that captures the essence of what was described.
     You are free to choose a stanza, meter, form, and rhyme.
+    {enhance}
+
+    IMAGE ANALYSIS:
+    {image_analysis}
   expected_output: >
     A conventionally formatted poem according to the chosen poem style.
     Do not provide anything else but the poem.
@@ -34,8 +24,12 @@ poem_task_1:
 
 poem_task_free:
   description: >
-    Based on the image analysis provided in the context, create a poem that captures the essence of what was described.
+    Based on the image analysis below, create a poem that captures the essence of what was described.
     You are free to choose a stanza, meter, form, and rhyme.
+    {enhance}
+
+    IMAGE ANALYSIS:
+    {image_analysis}
   expected_output: >
     A conventionally formatted poem according to the chosen poem style.
     Do not provide anything else but the poem.

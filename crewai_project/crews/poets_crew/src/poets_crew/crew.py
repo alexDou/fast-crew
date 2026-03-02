@@ -1,4 +1,3 @@
-from multiprocessing import context
 from typing import List
 from dotenv import load_dotenv
 import os
@@ -6,14 +5,17 @@ from crewai import Agent, Crew, Process, Task, LLM
 from crewai.project import CrewBase, agent, crew, task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
-from crewai_tools import VisionTool
 
 load_dotenv()
 openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
 
+
 @CrewBase
 class PoetsCrew():
     """PoetsCrew crew"""
+
+    POET_FREE_DEFAULT_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
+    POET_FREE_FALLBACK_MODEL = "openrouter/deepseek/deepseek-v3.2"
 
     agents: List[BaseAgent]
     tasks: List[Task]
@@ -23,32 +25,18 @@ class PoetsCrew():
     agents_config = os.path.join(_config_dir, 'agents.yaml')
     tasks_config = os.path.join(_config_dir, 'tasks.yaml')
 
+    def __init__(self, poet_free_model: str | None = None):
+        self._poet_free_model = poet_free_model or self.POET_FREE_DEFAULT_MODEL
+
     # CrewAI TextFileKnowledgeSource automatically looks in the knowledge/ directory
     text_knowledge_source = TextFileKnowledgeSource(
         file_paths=["preferences.txt"],
     )
 
-    def __init__(self):
-        self.vision_tool = None
-    
-    def set_image_path(self, image_path: str):
-        """Set the image path for VisionTool dynamically."""
-        self.vision_tool = VisionTool(image_path_url=image_path)
-    
-    @agent
-    def image_analyzer(self) -> Agent:
-        # VisionTool will be set dynamically before crew execution
-        tools = [self.vision_tool] if self.vision_tool else []
-        return Agent(
-            config=self.agents_config['image_analyzer'],
-            verbose=True,
-            tools=tools,
-        )
-        
     @agent
     def poet_1(self) -> Agent:
         llm = LLM(
-            model="openrouter/anthropic/claude-haiku-4.5",
+            model="openrouter/meta-llama/llama-3.2-3b-instruct",
             base_url="https://openrouter.ai/api/v1",
             api_key=openrouter_api_key
         )
@@ -61,10 +49,10 @@ class PoetsCrew():
     # @agent
     # def poet_2(self) -> Agent:
     #     llm = LLM(
-    #         model="openrouter/tngtech/deepseek-r1t-chimera:free",
+    #         model="openrouter/meta-llama/llama-3.2-3b-instruct",
     #         base_url="https://openrouter.ai/api/v1",
     #         api_key=openrouter_api_key
-    #     )   
+    #     )
     #     return Agent(
     #         llm=llm,
     #         config=self.agents_config['poet_2'],
@@ -74,7 +62,7 @@ class PoetsCrew():
     @agent
     def poet_free(self) -> Agent:
         llm = LLM(
-            model="openrouter/tngtech/deepseek-r1t2-chimera:free",
+            model=self._poet_free_model,
             base_url="https://openrouter.ai/api/v1",
             api_key=openrouter_api_key
         )
@@ -92,30 +80,21 @@ class PoetsCrew():
         )
 
     @task
-    def analyze_image_task(self) -> Task:
-        return Task(
-            config=self.tasks_config['analyze_image_task'],
-        )
-
-    @task
     def poem_task_1(self) -> Task:
         return Task(
             config=self.tasks_config['poem_task_1'],
-            context=[self.analyze_image_task()],
         )
 
     # @task
     # def poem_task_2(self) -> Task:
     #     return Task(
     #         config=self.tasks_config['poem_task_2'],
-    #         context=[self.analyze_image_task()],
     #     )
 
     @task
     def poem_task_free(self) -> Task:
         return Task(
             config=self.tasks_config['poem_task_free'],
-            context=[self.analyze_image_task()],
         )
 
     @task

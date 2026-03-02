@@ -120,11 +120,6 @@ async def write_poem_source(
 
 
 @router.get("/poem-sources", response_model=PaginatedListResponse[PoemSourceRead])
-@cache(
-    key_prefix="{username}_poem_sources:page_{page}:items_per_page:{items_per_page}",
-    resource_id_name="username",
-    expiration=60,
-)
 async def read_poem_sources(
     request: Request,
     db: Annotated[AsyncSession, Depends(async_get_db)],

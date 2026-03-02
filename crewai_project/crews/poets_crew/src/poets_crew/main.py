@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import sys
 import warnings
-
 from datetime import datetime
 
 from poets_crew.crew import PoetsCrew
@@ -12,10 +11,15 @@ def run():
     """
     Run the crew.
     """
-    # Pass the image path as input
     import os
-    current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    image_path = os.path.join(current_dir, "media", "nature-picknic.jpeg")
+
+    if len(sys.argv) < 2:
+        raise ValueError("Image path is required. Usage: poets_crew <image_path>")
+
+    image_path = sys.argv[1]
+    if not os.path.exists(image_path):
+        raise FileNotFoundError(f"Image not found: {image_path}")
+
     inputs = {
         "image_path": image_path
     }
