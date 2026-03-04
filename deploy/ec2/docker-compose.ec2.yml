@@ -1,0 +1,52 @@
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    env_file:
+      - ../../src/.env
+    depends_on:
+      - redis
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ../../media:/code/media
+      - ../../crewai_project:/code/crewai_project:ro
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: arq app.core.worker.settings.WorkerSettings
+    env_file:
+      - ../../src/.env
+    depends_on:
+      - redis
+    volumes:
+      - ../../media:/code/media
+      - ../../crewai_project:/code/crewai_project:ro
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  create_superuser:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    env_file:
+      - ../../src/.env
+    command: python -m src.scripts.create_first_superuser
+    depends_on:
+      - web
+    profiles:
+      - setup
+
+volumes:
+  redis-data:
