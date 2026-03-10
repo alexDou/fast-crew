@@ -1,10 +1,7 @@
-from typing import Annotated, Any
-import os
-import uuid
-import shutil
 from pathlib import Path
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +12,7 @@ from ...core.utils.cache import cache
 from ...crud.crud_poem_sources import crud_poem_sources
 from ...schemas.poem_source import PoemSourceCreateInternal, PoemSourceRead, PoemSourceUpdate
 from ...services.crewai_service import crewai_service
+from ...services.storage_service import StorageError, storage_service
 
 router = APIRouter(tags=["poems_source"])
 
@@ -28,13 +26,13 @@ async def write_poem_source(
     db: Annotated[AsyncSession, Depends(async_get_db)] = None,
 ) -> dict[str, Any]:
     """Create a poem source by uploading an image file.
-    
+
     Args:
         username: The username of the user creating the poem source
         file: Image file to upload
         current_user: The authenticated user
         db: Database session
-    
+
     Returns:
         The created poem source record with the file path
     """
@@ -43,51 +41,23 @@ async def write_poem_source(
 
     # Validate file type (images only)
     allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
-    file_extension = Path(file.filename).suffix.lower()
-    
+    filename = file.filename or ""
+    file_extension = Path(filename).suffix.lower()
+
     if file_extension not in allowed_extensions:
         raise HTTPException(
             status_code=400,
             detail=f"File type {file_extension} not allowed. Allowed types: {', '.join(allowed_extensions)}"
         )
 
-    # Get project root directory from current working directory
-    project_root = Path(os.getcwd())
-    
-    # Create media directory structure: {project_root}/media/{username}
-    user_media_dir = project_root / "media" / current_user["username"]
-    
+    object_key = storage_service.build_media_object_key(current_user["username"], file_extension)
+
     try:
-        user_media_dir.mkdir(parents=True, exist_ok=True, mode=0o755)
-    except PermissionError:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Permission denied: Cannot create directory {user_media_dir}. Please check directory permissions."
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create media directory: {str(e)}"
-        )
-
-    # Generate unique filename to avoid collisions
-    unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = user_media_dir / unique_filename
-
-    # Save the file
-    try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to save file: {str(e)}"
-        )
-    # finally:
-    #     await file.close()
-
-    # Store relative path from project root
-    media_path = str(file_path.relative_to(project_root))
+        media_path = await storage_service.upload_upload_file(file=file, object_key=object_key)
+    except StorageError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        await file.close()
 
     # Create the poem source record with processing status
     poem_source_internal_dict = {
@@ -99,8 +69,8 @@ async def write_poem_source(
 
     poem_source_internal = PoemSourceCreateInternal(**poem_source_internal_dict)
     created_poem_source = await crud_poem_sources.create(
-        db=db, 
-        object=poem_source_internal, 
+        db=db,
+        object=poem_source_internal,
         schema_to_select=PoemSourceRead
     )
 
@@ -110,13 +80,13 @@ async def write_poem_source(
     # Start CrewAI poem generation in the background
     crewai_service.start_poem_generation(
         poem_source_id=created_poem_source["id"],
-        image_path=str(file_path),
+        media_path=media_path,
         user_id=current_user["id"],
         enhance=enhance,
         db_session_maker=local_session
     )
 
-    return created_poem_source
+    return storage_service.attach_media_url(created_poem_source)
 
 
 @router.get("/poem-sources", response_model=PaginatedListResponse[PoemSourceRead])
@@ -136,6 +106,7 @@ async def read_poem_sources(
     )
 
     response: dict[str, Any] = paginated_response(crud_data=poem_sources_data, page=page, items_per_page=items_per_page)
+    response["data"] = [storage_service.attach_media_url(item) for item in response.get("data", [])]
     return response
 
 
@@ -147,12 +118,12 @@ async def check_poem_source_ready(
     current_user: Annotated[dict, Depends(get_current_user)],
 ) -> dict[str, Any]:
     """Check if poem generation is complete for a poem source.
-    
+
     Args:
         username: The username of the user
         id: The poem source ID
         db: Database session
-    
+
     Returns:
         Dictionary with status information:
         - ready: bool (True if success or error, False if still processing)
@@ -160,13 +131,13 @@ async def check_poem_source_ready(
         - poem_source_id: int
     """
     db_poem_source = await crud_poem_sources.get(
-        db=db, 
-        id=id, 
-        user_id=current_user["id"], 
-        is_deleted=False, 
+        db=db,
+        id=id,
+        user_id=current_user["id"],
+        is_deleted=False,
         schema_to_select=PoemSourceRead
     )
-    
+
     if db_poem_source is None:
         raise NotFoundException("Poem source not found")
 
@@ -183,8 +154,8 @@ async def check_poem_source_ready(
 @router.get("/poem_source/{id}", response_model=PoemSourceRead)
 @cache(key_prefix="{id}_poem_source_cache", resource_id_name="id")
 async def read_poem_source(
-    request: Request, 
-    id: int, 
+    request: Request,
+    id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_user: Annotated[dict, Depends(get_current_user)],
 ) -> dict[str, Any]:
@@ -195,7 +166,7 @@ async def read_poem_source(
     if db_poem_source is None:
         raise NotFoundException("Poem source not found")
 
-    return db_poem_source
+    return storage_service.attach_media_url(db_poem_source)
 
 
 @router.patch("/poem_source/{id}")
@@ -242,8 +213,8 @@ async def erase_poem_source(
 @router.delete("/db_poem_source/{id}", dependencies=[Depends(get_current_superuser)])
 @cache("{id}_poem_source_cache", resource_id_name="id", to_invalidate_extra={"{id}_poems": "{id}"})
 async def erase_db_poem_source(
-    request: Request, 
-    id: int, 
+    request: Request,
+    id: int,
     current_user: Annotated[dict, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(async_get_db)]
 ) -> dict[str, str]:

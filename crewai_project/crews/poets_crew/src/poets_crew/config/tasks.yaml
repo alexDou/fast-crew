@@ -10,7 +10,6 @@ poem_task_1:
     A conventionally formatted poem according to the chosen poem style.
     Do not provide anything else but the poem.
   agent: poet_1
-  output_file: output/poet_1.md
 
 # poem_task_2:
 #   description: >
@@ -20,7 +19,6 @@ poem_task_1:
 #     A conventionally formatted poem according to the chosen poem style.
 #     Do not provide anything else but the poem.
 #   agent: poet_2
-#   output_file: output/poet_2.md
 
 poem_task_free:
   description: >
@@ -34,7 +32,6 @@ poem_task_free:
     A conventionally formatted poem according to the chosen poem style.
     Do not provide anything else but the poem.
   agent: poet_free
-  output_file: output/poet_free.md
 
 critic_task:
   description: >
@@ -46,4 +43,3 @@ critic_task:
     Include your final recommendation for the best poem.
     Formatted as markdown without '```'
   agent: critic
-  output_file: output/critic.md

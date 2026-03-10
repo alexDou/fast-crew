@@ -123,6 +123,23 @@ class RedisQueueSettings(BaseSettings):
     REDIS_QUEUE_PORT: int = 6379
 
 
+class StorageSettings(BaseSettings):
+    STORAGE_BACKEND: str = "local"
+    LOCAL_STORAGE_ROOT: str = "."
+
+    S3_BUCKET_NAME: str | None = None
+    S3_REGION: str = "eu-north-1"
+    S3_ENDPOINT_URL: str | None = None
+    S3_MEDIA_PREFIX: str = "media"
+    S3_OUTPUT_PREFIX: str = "output"
+    S3_SIGNED_URL_EXPIRE_SECONDS: int = 3600
+
+    AWS_ACCESS_KEY_ID: str | None = None
+    AWS_SECRET_ACCESS_KEY: str | None = None
+    AWS_SESSION_TOKEN: str | None = None
+    AWS_PROFILE: str | None = None
+
+
 class CRUDAdminSettings(BaseSettings):
     CRUD_ADMIN_ENABLED: bool = True
     CRUD_ADMIN_MOUNT_PATH: str = "/admin"
@@ -170,6 +187,7 @@ class Settings(
     RedisCacheSettings,
     ClientSideCacheSettings,
     RedisQueueSettings,
+    StorageSettings,
     CRUDAdminSettings,
     EnvironmentSettings,
     CORSSettings,

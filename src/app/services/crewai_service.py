@@ -4,9 +4,11 @@ import logging
 import os
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from .storage_service import StorageError, storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +53,7 @@ class CrewAIService:
         db: AsyncSession,
         user_id: int,
         poem_source_id: int,
-        poems: Dict[str, str],
+        poems: dict[str, str],
         critic_choice: str | None
     ):
         from datetime import UTC, datetime
@@ -92,6 +94,31 @@ class CrewAIService:
 
         await db.commit()
 
+    def _persist_output_artifacts(
+        self,
+        poem_source_id: int,
+        image_analysis: str,
+        poems: dict[str, str | None],
+        critic: str | None,
+    ) -> None:
+        """Persist generated markdown artifacts via the configured storage backend."""
+        artifacts = {
+            "image_analysis.md": image_analysis,
+            "poet_1.md": poems.get("poem_1") or "",
+            "poet_free.md": poems.get("poem_free") or "",
+            "critic.md": critic or "",
+        }
+
+        for filename, content in artifacts.items():
+            if not content.strip():
+                continue
+
+            try:
+                output_path = storage_service.store_output_artifact(poem_source_id, filename, content)
+                logger.info(f"Stored output artifact for source_id={poem_source_id}: {output_path}")
+            except StorageError as exc:
+                logger.warning(f"Failed to store output artifact {filename} for source_id={poem_source_id}: {exc}")
+
     @staticmethod
     def _is_rate_limit_error(exc: Exception) -> bool:
         """Check if an exception is a rate-limit (429) error."""
@@ -121,13 +148,20 @@ class CrewAIService:
     def _run_crew_sync(
         self,
         poem_source_id: int,
-        image_path: str,
+        media_path: str,
         user_id: int,
         enhance: str | None,
         db_session_maker
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
+        local_image_path = ""
+        should_cleanup_local_image = False
+
         try:
-            logger.info(f"Starting CrewAI poem generation for source_id={poem_source_id}, image={image_path}")
+            local_image_path, should_cleanup_local_image = storage_service.prepare_local_media_file(media_path)
+            logger.info(
+                f"Starting CrewAI poem generation for source_id={poem_source_id}, "
+                f"media={media_path}, local_image={local_image_path}"
+            )
 
             from pathlib import Path
 
@@ -179,12 +213,12 @@ class CrewAIService:
                 api_key=openrouter_api_key,
                 model="qwen/qwen3-vl-235b-a22b-instruct",
             )
-            logger.info(f"Calling ImageAnalyzerTool directly for: {image_path}")
-            image_analysis = tool._run(image_path=image_path)
+            logger.info(f"Calling ImageAnalyzerTool directly for: {local_image_path}")
+            image_analysis = tool._run(image_path=local_image_path)
             logger.info(f"ImageAnalyzerTool result (first 200 chars): {image_analysis[:200]}")
 
             inputs = {
-                "image_path": image_path,
+                "image_path": local_image_path,
                 "image_analysis": image_analysis,
             }
             if enhance:
@@ -206,6 +240,13 @@ class CrewAIService:
                 "poem_1": poem_1,
                 "poem_free": poem_free
             }
+
+            self._persist_output_artifacts(
+                poem_source_id=poem_source_id,
+                image_analysis=image_analysis,
+                poems=poems,
+                critic=critic,
+            )
 
             # Save poems using new async engine in this thread's event loop
             from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -316,20 +357,24 @@ class CrewAIService:
             finally:
                 loop.close()
 
-            # Remove the uploaded file from disk
             try:
-                if os.path.exists(image_path):
-                    os.remove(image_path)
-                    logger.info(f"Removed uploaded file: {image_path}")
-            except OSError as file_err:
-                logger.error(f"Failed to remove uploaded file {image_path}: {file_err}")
+                storage_service.delete_media(media_path)
+                logger.info(f"Removed uploaded media: {media_path}")
+            except StorageError as file_err:
+                logger.error(f"Failed to remove uploaded media {media_path}: {file_err}")
 
             logger.error(f"Poem generation failed for source_id={poem_source_id}, cleanup complete")
+        finally:
+            if should_cleanup_local_image and local_image_path and os.path.exists(local_image_path):
+                try:
+                    os.remove(local_image_path)
+                except OSError as exc:
+                    logger.warning(f"Failed to clean up temporary local image {local_image_path}: {exc}")
 
     def start_poem_generation(
         self,
         poem_source_id: int,
-        image_path: str,
+        media_path: str,
         user_id: int,
         enhance: str | None,
         db_session_maker
@@ -337,7 +382,7 @@ class CrewAIService:
         self.executor.submit(
             self._run_crew_sync,
             poem_source_id,
-            image_path,
+            media_path,
             user_id,
             enhance,
             db_session_maker
