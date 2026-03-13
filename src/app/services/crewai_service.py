@@ -145,6 +145,20 @@ class CrewAIService:
                 return crew_instance.crew().kickoff(inputs=inputs)
             raise
 
+    @staticmethod
+    def _resolve_openrouter_api_key() -> str:
+        """Resolve OpenRouter API key from settings/env and make it available to imported crew modules."""
+        from ..core.config import settings
+
+        configured_key = settings.OPENROUTER_API_KEY.get_secret_value() if settings.OPENROUTER_API_KEY else None
+        api_key = configured_key or os.getenv("OPENROUTER_API_KEY")
+
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY is not configured")
+
+        os.environ["OPENROUTER_API_KEY"] = api_key
+        return api_key
+
     def _run_crew_sync(
         self,
         poem_source_id: int,
@@ -195,6 +209,8 @@ class CrewAIService:
             if pkg_src not in sys.path:
                 sys.path.insert(0, pkg_src)
 
+            openrouter_api_key = self._resolve_openrouter_api_key()
+
             # Force re-import to pick up any changes
             for mod_name in list(sys.modules):
                 if mod_name.startswith("poets_crew"):
@@ -208,7 +224,6 @@ class CrewAIService:
             os.chdir(original_cwd)
 
             # Call ImageAnalyzerTool directly — the agent was not reliably calling it
-            openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
             tool = ImageAnalyzerTool(
                 api_key=openrouter_api_key,
                 model="qwen/qwen3-vl-235b-a22b-instruct",

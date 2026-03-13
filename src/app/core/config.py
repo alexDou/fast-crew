@@ -140,6 +140,10 @@ class StorageSettings(BaseSettings):
     AWS_PROFILE: str | None = None
 
 
+class OpenRouterSettings(BaseSettings):
+    OPENROUTER_API_KEY: SecretStr | None = None
+
+
 class CRUDAdminSettings(BaseSettings):
     CRUD_ADMIN_ENABLED: bool = True
     CRUD_ADMIN_MOUNT_PATH: str = "/admin"
@@ -188,6 +192,7 @@ class Settings(
     ClientSideCacheSettings,
     RedisQueueSettings,
     StorageSettings,
+    OpenRouterSettings,
     CRUDAdminSettings,
     EnvironmentSettings,
     CORSSettings,
