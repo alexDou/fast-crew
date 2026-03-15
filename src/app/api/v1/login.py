@@ -31,6 +31,9 @@ async def login_for_access_token(
     if not user:
         raise UnauthorizedException("Wrong username, email or password.")
 
+    if not user.get("is_email_verified", False):
+        raise UnauthorizedException("Please verify your email before logging in.")
+
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = await create_access_token(data={"sub": user["username"]}, expires_delta=access_token_expires)
 

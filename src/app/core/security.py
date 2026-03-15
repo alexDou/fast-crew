@@ -73,6 +73,17 @@ async def create_refresh_token(data: dict[str, Any], expires_delta: timedelta | 
     return encoded_jwt
 
 
+async def create_email_verification_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(UTC).replace(tzinfo=None) + expires_delta
+    else:
+        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=24)
+    to_encode.update({"exp": expire, "purpose": "email_verification"})
+    encoded_jwt: str = jwt.encode(to_encode, SECRET_KEY.get_secret_value(), algorithm=ALGORITHM)
+    return encoded_jwt
+
+
 async def verify_token(token: str, expected_token_type: TokenType, db: AsyncSession) -> TokenData | None:
     """Verify a JWT token and return TokenData if valid.
 

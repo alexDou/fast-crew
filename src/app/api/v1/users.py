@@ -7,8 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...api.dependencies import get_current_superuser, get_current_user
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import DuplicateValueException, ForbiddenException, NotFoundException
-from ...core.security import blacklist_token, get_password_hash, oauth2_scheme
+from ...core.security import blacklist_token, get_password_hash, oauth2_scheme, create_email_verification_token
 from ...crud.crud_users import crud_users
+from jose import JWTError, jwt
+from pydantic import SecretStr
+from ...core.config import settings
 from ...schemas.user import UserCreate, UserCreateInternal, UserRead, UserUpdate
 
 router = APIRouter(tags=["users"])
@@ -35,6 +38,11 @@ async def write_user(
 
     if created_user is None:
         raise NotFoundException("Failed to create user")
+
+    verification_token = await create_email_verification_token(data={"sub": user.email})
+    import structlog
+    logger_reg = structlog.get_logger("app.registration")
+    logger_reg.info(f"Verification link for {user.email}: /api/v1/verify-email?token={verification_token}")
 
     return created_user
 
@@ -134,3 +142,62 @@ async def erase_db_user(
     await crud_users.db_delete(db=db, username=username)
     await blacklist_token(token=token, db=db)
     return {"message": "User deleted from the database"}
+
+
+@router.get("/verify-email")
+async def verify_email(
+    request: Request,
+    token: str,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+) -> dict[str, str]:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY.get_secret_value(), algorithms=[settings.ALGORITHM])
+        email: str | None = payload.get("sub")
+        purpose: str | None = payload.get("purpose")
+        if email is None or purpose != "email_verification":
+            raise NotFoundException("Invalid verification link")
+    except JWTError:
+        raise NotFoundException("Invalid or expired verification link")
+
+    db_user = await crud_users.get(db=db, email=email, is_deleted=False)
+    if db_user is None:
+        raise NotFoundException("User not found")
+
+    if db_user.get("is_email_verified", False):
+        return {"message": "Email already verified"}
+
+    await crud_users.update(db=db, object=UserUpdate(), username=db_user["username"])
+    # Direct SQL update for is_email_verified since it's not in UserUpdate schema
+    from sqlalchemy import update as sql_update
+    from ...models.user import User as UserModel
+    stmt = sql_update(UserModel).where(UserModel.email == email).values(is_email_verified=True)
+    await db.execute(stmt)
+    await db.commit()
+
+    return {"message": "Email verified successfully. You can now log in."}
+
+
+@router.post("/resend-verification")
+async def resend_verification(
+    request: Request,
+    db: Annotated[AsyncSession, Depends(async_get_db)],
+) -> dict[str, str]:
+    body = await request.json()
+    email = body.get("email")
+    if not email:
+        raise NotFoundException("Email is required")
+
+    db_user = await crud_users.get(db=db, email=email, is_deleted=False)
+    if db_user is None:
+        return {"message": "If this email is registered, a verification link has been sent."}
+
+    if db_user.get("is_email_verified", False):
+        return {"message": "Email is already verified."}
+
+    verification_token = await create_email_verification_token(data={"sub": email})
+
+    import structlog
+    logger = structlog.get_logger(__name__)
+    logger.info(f"Verification link for {email}: /api/v1/verify-email?token={verification_token}")
+
+    return {"message": "If this email is registered, a verification link has been sent."}

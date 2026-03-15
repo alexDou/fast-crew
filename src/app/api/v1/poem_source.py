@@ -39,6 +39,20 @@ async def write_poem_source(
     if not current_user:
         raise ForbiddenException()
 
+    # Check request limit: max 3 successful poem generations per account
+    existing_sources = await crud_poem_sources.get_multi(
+        db=db,
+        user_id=current_user["id"],
+        status="success",
+        is_deleted=False,
+    )
+    success_count = existing_sources["total_count"]
+    if success_count >= 3:
+        raise HTTPException(
+            status_code=429,
+            detail="You have reached the maximum of 3 poem generations. Thank you for using our service!"
+        )
+
     # Validate file type (images only)
     allowed_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
     filename = file.filename or ""
