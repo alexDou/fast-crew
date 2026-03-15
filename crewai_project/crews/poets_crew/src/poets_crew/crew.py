@@ -74,7 +74,13 @@ class PoetsCrew():
 
     @agent
     def critic(self) -> Agent:
+        llm = LLM(
+            model="openrouter/openai/gpt-4.1-mini",
+            base_url="https://openrouter.ai/api/v1",
+            api_key=openrouter_api_key
+        )
         return Agent(
+            llm=llm,
             config=self.agents_config['critic'],
             verbose=True,
         )
