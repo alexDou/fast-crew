@@ -144,6 +144,15 @@ async def check_poem_source_ready(
         - status: str (processing, success, or error)
         - poem_source_id: int
     """
+    failure_reason = crewai_service.get_failure_reason(id, current_user["id"])
+    if failure_reason == crewai_service.INDISTINCT_CONTENT_MESSAGE:
+        return {
+            "ready": True,
+            "status": "error",
+            "poem_source_id": id,
+            "message": failure_reason,
+        }
+
     db_poem_source = await crud_poem_sources.get(
         db=db,
         id=id,

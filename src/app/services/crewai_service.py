@@ -4,6 +4,7 @@ import logging
 import os
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,9 +17,41 @@ logger = logging.getLogger(__name__)
 class CrewAIService:
     """Service to run CrewAI poetry generation tasks."""
 
+    INDISTINCT_CONTENT_MESSAGE = "indistinct content"
+    MAX_STORED_FAILURE_REASONS = 1000
+
     def __init__(self):
         # Thread pool for running synchronous CrewAI code
         self.executor = ThreadPoolExecutor(max_workers=3)
+        self._failure_reasons: dict[int, tuple[int, str]] = {}
+        self._failure_reasons_lock = Lock()
+
+    def get_failure_reason(self, poem_source_id: int, user_id: int) -> str | None:
+        with self._failure_reasons_lock:
+            stored = self._failure_reasons.get(poem_source_id)
+            if not stored:
+                return None
+
+            stored_user_id, reason = stored
+            if stored_user_id != user_id:
+                return None
+
+            return reason
+
+    def _set_failure_reason(self, poem_source_id: int, user_id: int, reason: str) -> None:
+        with self._failure_reasons_lock:
+            if len(self._failure_reasons) >= self.MAX_STORED_FAILURE_REASONS:
+                first_key = next(iter(self._failure_reasons))
+                self._failure_reasons.pop(first_key, None)
+
+            self._failure_reasons[poem_source_id] = (user_id, reason)
+
+    @classmethod
+    def _extract_failure_reason(cls, exc: Exception) -> str | None:
+        normalized = str(exc).strip().lower()
+        if normalized == cls.INDISTINCT_CONTENT_MESSAGE:
+            return cls.INDISTINCT_CONTENT_MESSAGE
+        return None
 
     @staticmethod
     def _get_first_line_normalized(text: str) -> str:
@@ -216,8 +249,8 @@ class CrewAIService:
                 if mod_name.startswith("poets_crew"):
                     del sys.modules[mod_name]
 
-            from poets_crew.crew import PoetsCrew  # noqa: E402
-            from poets_crew.tools.image_analyzer_tool import ImageAnalyzerTool  # noqa: E402
+            from poets_crew.crew import PoetsCrew
+            from poets_crew.tools.image_analyzer_tool import ImageAnalyzerTool
             logger.info(f"Loaded PoetsCrew from package at {pkg_src}")
 
             # Restore original working directory
@@ -231,6 +264,9 @@ class CrewAIService:
             logger.info(f"Calling ImageAnalyzerTool directly for: {local_image_path}")
             image_analysis = tool._run(image_path=local_image_path)
             logger.info(f"ImageAnalyzerTool result (first 200 chars): {image_analysis[:200]}")
+
+            if image_analysis.strip().lower() == self.INDISTINCT_CONTENT_MESSAGE:
+                raise RuntimeError(self.INDISTINCT_CONTENT_MESSAGE)
 
             inputs = {
                 "image_path": local_image_path,
@@ -321,6 +357,10 @@ class CrewAIService:
             }
 
         except Exception as e:
+            failure_reason = self._extract_failure_reason(e)
+            if failure_reason:
+                self._set_failure_reason(poem_source_id, user_id, failure_reason)
+
             logger.error(f"CRITICAL ERROR in CrewAI service for source_id={poem_source_id}: {e}")
             logger.error(f"Full traceback:\n{traceback.format_exc()}")
 

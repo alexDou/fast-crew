@@ -1,10 +1,37 @@
 """Custom image analysis tool using OpenRouter vision models directly."""
+
 import base64
 from pathlib import Path
 
 from crewai.tools import BaseTool
 from openai import OpenAI
 from pydantic import BaseModel, Field, field_validator
+
+INDISTINCT_CONTENT_MESSAGE = "indistinct content"
+
+IMAGE_ANALYSIS_PROMPT = """
+You are a strict image gatekeeper for poem generation.
+
+ACCEPT ONLY images that clearly show story-bearing visual content, such as:
+- people in scenes of life
+- portraits with recognizable expression or context
+- animals/pets in recognizable settings
+- architecture or landmarks with clear structure
+- distinctive nature scenes (mountains, sea, forests, storms, fields)
+- meaningful actions or moments that suggest a narrative
+
+REJECT images if they are not poetically useful due to being vague or non-narrative, including:
+- abstract wallpapers or decorative patterns
+- random color mixes/gradients/textures
+- screenshots, UI captures, meme templates, or banners
+- mostly text, logos, posters, or a single text line
+- blurred, indistinct, very low-detail, or barely recognizable content
+
+Output rules:
+1) If REJECTED, respond with exactly: indistinct content
+2) If ACCEPTED, provide a concise visual analysis in 4-8 sentences with concrete details only.
+3) Never add preambles, labels, bullet points, or markdown.
+""".strip()
 
 
 class ImageAnalyzerInput(BaseModel):
@@ -58,8 +85,8 @@ class ImageAnalyzerTool(BaseTool):
                         "role": "user",
                         "content": [
                             {
-                                "type": "text", 
-                                "text": "Analyse in detail what you see in this image. Output only concise excerpt of essentials. Summerize to no more than 10 sentences."
+                                "type": "text",
+                                "text": IMAGE_ANALYSIS_PROMPT,
                             },
                             {
                                 "type": "image_url",
@@ -70,7 +97,16 @@ class ImageAnalyzerTool(BaseTool):
                 ],
             )
 
-            return completion.choices[0].message.content
+            response_content = completion.choices[0].message.content or ""
+            if isinstance(response_content, list):
+                response_content = "".join(str(part) for part in response_content)
+
+            normalized = str(response_content).strip().lower()
+            first_line_normalized = normalized.split("\n", maxsplit=1)[0].strip()
+            if first_line_normalized.startswith(INDISTINCT_CONTENT_MESSAGE):
+                return INDISTINCT_CONTENT_MESSAGE
+
+            return str(response_content).strip()
 
         except Exception as e:
             return f"Error analyzing image: {e!s}"
