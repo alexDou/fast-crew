@@ -30,7 +30,7 @@ class TestLoginEmailVerification:
         with patch("src.app.api.v1.login.authenticate_user", new_callable=AsyncMock) as mock_auth:
             mock_auth.return_value = unverified_user
 
-            with pytest.raises(UnauthorizedException, match="verify your email"):
+            with pytest.raises(UnauthorizedException, match="not yet verified"):
                 await login_for_access_token(mock_response, mock_form, mock_db)
 
     @pytest.mark.asyncio

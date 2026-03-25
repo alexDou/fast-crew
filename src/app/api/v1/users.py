@@ -1,18 +1,38 @@
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
+from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.dependencies import get_current_superuser, get_current_user
+from ...core.config import settings
 from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import DuplicateValueException, ForbiddenException, NotFoundException
-from ...core.security import blacklist_token, get_password_hash, oauth2_scheme, create_email_verification_token
+from ...core.security import blacklist_token, create_email_verification_token, get_password_hash, oauth2_scheme
 from ...crud.crud_users import crud_users
-from jose import JWTError, jwt
-from pydantic import SecretStr
-from ...core.config import settings
-from ...schemas.user import UserCreate, UserCreateInternal, UserRead, UserUpdate
+from ...schemas.user import ResendVerificationRequest, UserCreate, UserCreateInternal, UserRead, UserUpdate
+from ...services.email_service import VerificationEmailPayload, email_service
+
+
+def _request_origin(request: Request) -> str:
+    if settings.EMAIL_VERIFICATION_BASE_URL:
+        return settings.EMAIL_VERIFICATION_BASE_URL.rstrip("/")
+    if settings.CORS_ORIGINS and settings.CORS_ORIGINS[0] != "*":
+        return settings.CORS_ORIGINS[0]
+    return str(request.base_url).rstrip("/")
+
+
+async def _send_verification_email(request: Request, to_email: str, to_name: str | None, token: str) -> None:
+    verification_link = email_service.build_verification_link(_request_origin(request), token)
+    await email_service.send_verification_email(
+        VerificationEmailPayload(
+            to_email=to_email,
+            to_name=to_name,
+            verification_link=verification_link,
+        )
+    )
 
 router = APIRouter(tags=["users"])
 
@@ -21,9 +41,23 @@ router = APIRouter(tags=["users"])
 async def write_user(
     request: Request, user: UserCreate, db: Annotated[AsyncSession, Depends(async_get_db)]
 ) -> dict[str, Any]:
-    email_row = await crud_users.exists(db=db, email=user.email)
-    if email_row:
-        raise DuplicateValueException("Email is already registered")
+    existing_user = await crud_users.get(db=db, email=user.email, is_deleted=False)
+    if existing_user:
+        if existing_user.get("is_email_verified", False):
+            raise DuplicateValueException("Email is already registered")
+
+        created_at: datetime | None = existing_user.get("created_at")
+        if created_at is None:
+            raise DuplicateValueException("Email is not yet verified, please check your email")
+
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
+
+        expires_after = timedelta(days=settings.EMAIL_VERIFICATION_EXPIRE_DAYS)
+        if (datetime.now(UTC) - created_at) < expires_after:
+            raise DuplicateValueException("Email is not yet verified, please check your email")
+
+        await crud_users.db_delete(db=db, id=existing_user["id"])
 
     username_row = await crud_users.exists(db=db, username=user.username)
     if username_row:
@@ -40,9 +74,7 @@ async def write_user(
         raise NotFoundException("Failed to create user")
 
     verification_token = await create_email_verification_token(data={"sub": user.email})
-    import structlog
-    logger_reg = structlog.get_logger("app.registration")
-    logger_reg.info(f"Verification link for {user.email}: /api/v1/verify-email?token={verification_token}")
+    await _send_verification_email(request=request, to_email=user.email, to_name=user.name, token=verification_token)
 
     return created_user
 
@@ -169,6 +201,7 @@ async def verify_email(
     await crud_users.update(db=db, object=UserUpdate(), username=db_user["username"])
     # Direct SQL update for is_email_verified since it's not in UserUpdate schema
     from sqlalchemy import update as sql_update
+
     from ...models.user import User as UserModel
     stmt = sql_update(UserModel).where(UserModel.email == email).values(is_email_verified=True)
     await db.execute(stmt)
@@ -180,24 +213,28 @@ async def verify_email(
 @router.post("/resend-verification")
 async def resend_verification(
     request: Request,
+    payload: ResendVerificationRequest,
     db: Annotated[AsyncSession, Depends(async_get_db)],
 ) -> dict[str, str]:
-    body = await request.json()
-    email = body.get("email")
-    if not email:
-        raise NotFoundException("Email is required")
+    identifier = payload.resolved_identifier
 
-    db_user = await crud_users.get(db=db, email=email, is_deleted=False)
+    if "@" in identifier:
+        db_user = await crud_users.get(db=db, email=identifier, is_deleted=False)
+    else:
+        db_user = await crud_users.get(db=db, username=identifier, is_deleted=False)
+
     if db_user is None:
         return {"message": "If this email is registered, a verification link has been sent."}
 
     if db_user.get("is_email_verified", False):
         return {"message": "Email is already verified."}
 
-    verification_token = await create_email_verification_token(data={"sub": email})
-
-    import structlog
-    logger = structlog.get_logger(__name__)
-    logger.info(f"Verification link for {email}: /api/v1/verify-email?token={verification_token}")
+    verification_token = await create_email_verification_token(data={"sub": db_user["email"]})
+    await _send_verification_email(
+        request=request,
+        to_email=db_user["email"],
+        to_name=db_user.get("name"),
+        token=verification_token,
+    )
 
     return {"message": "If this email is registered, a verification link has been sent."}

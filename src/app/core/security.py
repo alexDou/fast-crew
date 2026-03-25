@@ -78,7 +78,7 @@ async def create_email_verification_token(data: dict[str, Any], expires_delta: t
     if expires_delta:
         expire = datetime.now(UTC).replace(tzinfo=None) + expires_delta
     else:
-        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=24)
+        expire = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=settings.EMAIL_VERIFICATION_EXPIRE_DAYS)
     to_encode.update({"exp": expire, "purpose": "email_verification"})
     encoded_jwt: str = jwt.encode(to_encode, SECRET_KEY.get_secret_value(), algorithm=ALGORITHM)
     return encoded_jwt

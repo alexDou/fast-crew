@@ -1,5 +1,6 @@
 """Unit tests for user API endpoints."""
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -18,18 +19,20 @@ class TestWriteUser:
         user_create = UserCreate(**sample_user_data)
 
         with patch("src.app.api.v1.users.crud_users") as mock_crud:
+            mock_crud.get = AsyncMock(return_value=None)
             # Mock that email and username don't exist
-            mock_crud.exists = AsyncMock(side_effect=[False, False])  # email, then username
+            mock_crud.exists = AsyncMock(return_value=False)
             mock_crud.create = AsyncMock(return_value=sample_user_read.model_dump())
 
             with patch("src.app.api.v1.users.get_password_hash") as mock_hash:
                 mock_hash.return_value = "hashed_password"
 
-                result = await write_user(Mock(), user_create, mock_db)
+                with patch("src.app.api.v1.users._send_verification_email", new_callable=AsyncMock):
+                    result = await write_user(Mock(), user_create, mock_db)
 
                 assert result == sample_user_read.model_dump()
-                mock_crud.exists.assert_any_call(db=mock_db, email=user_create.email)
-                mock_crud.exists.assert_any_call(db=mock_db, username=user_create.username)
+                mock_crud.get.assert_called_once_with(db=mock_db, email=user_create.email, is_deleted=False)
+                mock_crud.exists.assert_called_once_with(db=mock_db, username=user_create.username)
                 mock_crud.create.assert_called_once()
 
     @pytest.mark.asyncio
@@ -38,11 +41,65 @@ class TestWriteUser:
         user_create = UserCreate(**sample_user_data)
 
         with patch("src.app.api.v1.users.crud_users") as mock_crud:
-            # Mock that email already exists
-            mock_crud.exists = AsyncMock(return_value=True)
+            # Mock verified account with same email
+            mock_crud.get = AsyncMock(return_value={"is_email_verified": True})
 
             with pytest.raises(DuplicateValueException, match="Email is already registered"):
                 await write_user(Mock(), user_create, mock_db)
+
+    @pytest.mark.asyncio
+    async def test_create_user_unverified_email_still_active(self, mock_db, sample_user_data):
+        """Test user creation blocked while unverified email token is still active."""
+        user_create = UserCreate(**sample_user_data)
+        now = datetime.now(UTC)
+
+        with patch("src.app.api.v1.users.crud_users") as mock_crud:
+            mock_crud.get = AsyncMock(
+                return_value={
+                    "id": 22,
+                    "is_email_verified": False,
+                    "created_at": now - timedelta(days=1),
+                }
+            )
+
+            with pytest.raises(DuplicateValueException, match="Email is not yet verified"):
+                await write_user(Mock(), user_create, mock_db)
+
+    @pytest.mark.asyncio
+    async def test_create_user_reuses_email_after_verification_expiry(
+        self,
+        mock_db,
+        sample_user_data,
+        sample_user_read,
+    ):
+        """Test user creation can reuse unverified email after expiry window."""
+        user_create = UserCreate(**sample_user_data)
+        now = datetime.now(UTC)
+
+        with patch("src.app.api.v1.users.crud_users") as mock_crud:
+            mock_crud.get = AsyncMock(
+                return_value={
+                    "id": 22,
+                    "is_email_verified": False,
+                    "created_at": now - timedelta(days=5),
+                }
+            )
+            mock_crud.db_delete = AsyncMock()
+            mock_crud.exists = AsyncMock(return_value=False)
+            mock_crud.create = AsyncMock(return_value=sample_user_read.model_dump())
+
+            with patch("src.app.api.v1.users.get_password_hash") as mock_hash:
+                mock_hash.return_value = "hashed_password"
+                with patch(
+                    "src.app.api.v1.users.create_email_verification_token",
+                    new_callable=AsyncMock,
+                ) as mock_token:
+                    mock_token.return_value = "verification_token"
+                    with patch("src.app.api.v1.users._send_verification_email", new_callable=AsyncMock):
+                        result = await write_user(Mock(), user_create, mock_db)
+
+            assert result == sample_user_read.model_dump()
+            mock_crud.db_delete.assert_called_once_with(db=mock_db, id=22)
 
     @pytest.mark.asyncio
     async def test_create_user_duplicate_username(self, mock_db, sample_user_data):
@@ -50,8 +107,10 @@ class TestWriteUser:
         user_create = UserCreate(**sample_user_data)
 
         with patch("src.app.api.v1.users.crud_users") as mock_crud:
+            mock_crud.get = AsyncMock(return_value=None)
             # Mock email doesn't exist, but username does
-            mock_crud.exists = AsyncMock(side_effect=[False, True])
+            mock_crud.exists = AsyncMock(return_value=True)
+            mock_crud.create = AsyncMock()
 
             with pytest.raises(DuplicateValueException, match="Username not available"):
                 await write_user(Mock(), user_create, mock_db)

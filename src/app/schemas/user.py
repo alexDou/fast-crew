@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from ..core.schemas import PersistentDeletion, TimestampSchema, UUIDSchema
 
@@ -60,3 +60,22 @@ class UserDelete(BaseModel):
 
 class UserRestoreDeleted(BaseModel):
     is_deleted: bool
+
+
+class ResendVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: Annotated[str | None, Field(min_length=2, max_length=100, default=None)]
+    email: Annotated[EmailStr | None, Field(default=None)]
+
+    @model_validator(mode="after")
+    def validate_identifier(self) -> "ResendVerificationRequest":
+        if self.identifier is None and self.email is None:
+            raise ValueError("Email or identifier is required")
+        return self
+
+    @property
+    def resolved_identifier(self) -> str:
+        if self.identifier is not None:
+            return self.identifier.strip()
+        return str(self.email)

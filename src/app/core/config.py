@@ -144,6 +144,22 @@ class OpenRouterSettings(BaseSettings):
     OPENROUTER_API_KEY: SecretStr | None = None
 
 
+class EmailSettings(BaseSettings):
+    SMTP_HOST: str | None = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: str | None = None
+    SMTP_PASSWORD: SecretStr | None = None
+    SMTP_USE_STARTTLS: bool = True
+    SMTP_USE_SSL: bool = False
+    SMTP_TIMEOUT_SECONDS: int = 20
+
+    EMAIL_FROM_NAME: str = "Poets Crew"
+    EMAIL_FROM_ADDRESS: str | None = None
+    EMAIL_REPLY_TO: str | None = None
+    EMAIL_VERIFICATION_BASE_URL: str | None = None
+    EMAIL_VERIFICATION_EXPIRE_DAYS: int = 3
+
+
 class CRUDAdminSettings(BaseSettings):
     CRUD_ADMIN_ENABLED: bool = True
     CRUD_ADMIN_MOUNT_PATH: str = "/admin"
@@ -193,6 +209,7 @@ class Settings(
     RedisQueueSettings,
     StorageSettings,
     OpenRouterSettings,
+    EmailSettings,
     CRUDAdminSettings,
     EnvironmentSettings,
     CORSSettings,
