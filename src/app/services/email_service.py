@@ -45,7 +45,16 @@ class EmailService:
             return
 
         message = self._build_verification_email_message(payload)
-        await asyncio.to_thread(self._send_via_smtp, message)
+        try:
+            await asyncio.to_thread(self._send_via_smtp, message)
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Failed to send verification email",
+                recipient=payload.to_email,
+                error=str(exc),
+            )
+            if settings.ENVIRONMENT != "production":
+                raise
 
     def _build_verification_email_message(self, payload: VerificationEmailPayload) -> EmailMessage:
         recipient_name = payload.to_name.strip() if payload.to_name else "there"

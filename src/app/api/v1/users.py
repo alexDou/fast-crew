@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import RedirectResponse
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -181,7 +182,7 @@ async def verify_email(
     request: Request,
     token: str,
     db: Annotated[AsyncSession, Depends(async_get_db)],
-) -> dict[str, str]:
+) -> RedirectResponse:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY.get_secret_value(), algorithms=[settings.ALGORITHM])
         email: str | None = payload.get("sub")
@@ -195,8 +196,10 @@ async def verify_email(
     if db_user is None:
         raise NotFoundException("User not found")
 
+    login_url = f"{_request_origin(request)}/signin"
+
     if db_user.get("is_email_verified", False):
-        return {"message": "Email already verified"}
+        return RedirectResponse(url=login_url, status_code=303)
 
     await crud_users.update(db=db, object=UserUpdate(), username=db_user["username"])
     # Direct SQL update for is_email_verified since it's not in UserUpdate schema
@@ -207,7 +210,7 @@ async def verify_email(
     await db.execute(stmt)
     await db.commit()
 
-    return {"message": "Email verified successfully. You can now log in."}
+    return RedirectResponse(url=login_url, status_code=303)
 
 
 @router.post("/resend-verification")
