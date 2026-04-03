@@ -93,7 +93,10 @@ class EmailService:
                 <h1 style="margin:0 0 16px;font-size:24px;color:#111827;">Verify Your Email</h1>
                 <p style="margin:0 0 12px;font-size:16px;">Hi {escaped_name},</p>
                 <p style="margin:0 0 16px;font-size:16px;">
-                  Welcome to Poets Crew. Please verify your email address to complete your registration.
+                  Welcome to Aisee.art!
+                </p>
+                <p style="margin:0 0 16px;font-size:16px;">
+                  Please verify your email address to complete your registration.
                 </p>
                 <p style="margin:0 0 20px;">
                   <a
