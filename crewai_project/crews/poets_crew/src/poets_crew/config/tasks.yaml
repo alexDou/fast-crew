@@ -1,50 +1,58 @@
-poem_task_1:
+poem_task_modern:
   description: >
-    Based on the image analysis below, create a poem that captures the essence of what was described.
-    You are free to choose a stanza, meter, form, and rhyme.
+    Write one finished modern poem from the inspirations below.
+    First decide what contemporary mode best suits the material: urban, underground, vanguard,
+    surreal, impressionistic, fragmentary, lyrical free verse, spoken, meditative, or another
+    modern register of your own choosing.
+    If additional user context is provided, keep it in the foreground of the poem's imagination;
+    do not relegate it backstage.
+    Do not merely paraphrase, summarize, or rhyme the inputs.
+    Use them as living sparks, then discover a fresh poetic angle, scene, pressure, or voice.
+    The result must feel like real poetry, not a caption or a stylish restatement.
+
+    USER COMPASS:
     {enhance}
 
     IMAGE ANALYSIS:
     {image_analysis}
   expected_output: >
-    A conventionally formatted poem according to the chosen poem style.
-    Do not provide anything else but the poem.
-  agent: poet_1
+    One finished modern poem only.
+    No explanation, no title unless the poem truly needs one, no notes, no markdown fences.
+  agent: poet_modern
 
-# poem_task_2:
-#   description: >
-#     Based on the image analysis provided in the context, create a poem that captures the essence of what was described.
-#     You are free to choose a stanza, meter, form, and rhyme.
-#   expected_output: >
-#     A conventionally formatted poem according to the chosen poem style.
-#     Do not provide anything else but the poem.
-#   agent: poet_2
-
-poem_task_free:
+poem_task_classic:
   description: >
-    Based on the image analysis below, create a poem that captures the essence of what was described.
-    You are free to choose a stanza, meter, form, and rhyme.
+    Write one finished classical poem from the inspirations below.
+    Choose the formal gravity, lineage, and emotional weather that best fit the material: ode,
+    elegy, sonnet, ballad, hymn, meditative lyric, or another classical mode.
+    You may let the poem carry the aura of a world-famous poet, tradition, or historical mood,
+    but do not collapse into imitation or pastiche.
+    If additional user context is provided, treat it as a privileged compass inside the poem,
+    not as disposable backstage instruction.
+    Do not merely paraphrase, summarize, or rhyme the inputs.
+    Transform them into a genuine poem with music, shape, dignity, and imaginative life.
+
+    USER COMPASS:
     {enhance}
 
     IMAGE ANALYSIS:
     {image_analysis}
   expected_output: >
-    A conventionally formatted poem according to the chosen poem style.
-    Do not provide anything else but the poem.
-  agent: poet_free
+    One finished classical poem only.
+    No explanation, no title unless the poem truly needs one, no notes, no markdown fences.
+  agent: poet_classic
 
-critic_task:
+poem_task_mystic:
   description: >
-    Review the two poems provided in the context and analyze their quality, style, and effectiveness.
-    Compare them and determine which one best captures the essence of the image and the user intent.
-    {enhance}
-
-    IMAGE ANALYSIS:
-    {image_analysis}
-
-    Provide detailed criticism for each poem.
+    You will receive two separate poems in the context, in this exact order:
+    first the poem from poet_modern, then the poem from poet_classic.
+    Treat them as two distinct visitations, not as one mixed source.
+    Do not critique them, summarize them, compare them, or quote them at length.
+    Instead, read their images, tensions, echoes, and spiritual residue, then answer them with
+    a third poem in a mystical, visionary, numinous register.
+    Let the new poem feel like revelation, invocation, dream, omen, or luminous contradiction.
+    It must be fully original and alive as poetry in its own right.
   expected_output: >
-    A fully detailed critical analysis report with sections for each poem.
-    Include your final recommendation for the best poem.
-    Formatted as markdown without '```'
-  agent: critic
+    One finished mystical poem only.
+    No analysis, no headings, no notes, no explanations, no markdown fences.
+  agent: poet_mystic

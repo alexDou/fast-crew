@@ -1,32 +1,34 @@
-from typing import List
-from dotenv import load_dotenv
 import os
-from crewai import Agent, Crew, Process, Task, LLM
-from crewai.project import CrewBase, agent, crew, task
+
+from crewai import LLM, Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
+from crewai.project import CrewBase, agent, crew, task
+from dotenv import load_dotenv
 
 load_dotenv()
 openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
 
 
 @CrewBase
-class PoetsCrew():
+class PoetsCrew:
     """PoetsCrew crew"""
 
-    POET_FREE_DEFAULT_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
-    POET_FREE_FALLBACK_MODEL = "openrouter/deepseek/deepseek-v3.2"
+    POET_DEFAULT_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
+    POET_MYSTIC_MODEL = "openrouter/deepseek/deepseek-v3.2"
+    POET_FALLBACK_MODEL = "openrouter/deepseek/deepseek-v3.2"
 
-    agents: List[BaseAgent]
-    tasks: List[Task]
+    agents: list[BaseAgent]
+    tasks: list[Task]
 
     # Use absolute paths for config files
     _config_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config')
     agents_config = os.path.join(_config_dir, 'agents.yaml')
     tasks_config = os.path.join(_config_dir, 'tasks.yaml')
 
-    def __init__(self, poet_free_model: str | None = None):
-        self._poet_free_model = poet_free_model or self.POET_FREE_DEFAULT_MODEL
+    def __init__(self, poet_model: str | None = None, poet_mystic_model: str | None = None):
+        self._poet_model = poet_model or self.POET_DEFAULT_MODEL
+        self._poet_mystic_model = poet_mystic_model or self.POET_MYSTIC_MODEL
 
     # CrewAI TextFileKnowledgeSource automatically looks in the knowledge/ directory
     text_knowledge_source = TextFileKnowledgeSource(
@@ -34,80 +36,61 @@ class PoetsCrew():
     )
 
     @agent
-    def poet_1(self) -> Agent:
+    def poet_modern(self) -> Agent:
         llm = LLM(
-            model="openrouter/meta-llama/llama-3.2-3b-instruct",
+            model=self._poet_model,
             base_url="https://openrouter.ai/api/v1",
             api_key=openrouter_api_key
         )
         return Agent(
             llm=llm,
-            config=self.agents_config['poet_1'],
-            verbose=True,
-        )
-
-    # @agent
-    # def poet_2(self) -> Agent:
-    #     llm = LLM(
-    #         model="openrouter/meta-llama/llama-3.2-3b-instruct",
-    #         base_url="https://openrouter.ai/api/v1",
-    #         api_key=openrouter_api_key
-    #     )
-    #     return Agent(
-    #         llm=llm,
-    #         config=self.agents_config['poet_2'],
-    #         verbose=True,
-    #     )
-
-    @agent
-    def poet_free(self) -> Agent:
-        llm = LLM(
-            model=self._poet_free_model,
-            base_url="https://openrouter.ai/api/v1",
-            api_key=openrouter_api_key
-        )
-        return Agent(
-            llm=llm,
-            config=self.agents_config['poet_free'],
+            config=self.agents_config['poet_modern'],
             verbose=True,
         )
 
     @agent
-    def critic(self) -> Agent:
+    def poet_classic(self) -> Agent:
         llm = LLM(
-            model="openrouter/openai/gpt-4.1-mini",
+            model=self._poet_model,
             base_url="https://openrouter.ai/api/v1",
             api_key=openrouter_api_key
         )
         return Agent(
             llm=llm,
-            config=self.agents_config['critic'],
+            config=self.agents_config['poet_classic'],
+            verbose=True,
+        )
+
+    @agent
+    def poet_mystic(self) -> Agent:
+        llm = LLM(
+            model=self._poet_mystic_model,
+            base_url="https://openrouter.ai/api/v1",
+            api_key=openrouter_api_key
+        )
+        return Agent(
+            llm=llm,
+            config=self.agents_config['poet_mystic'],
             verbose=True,
         )
 
     @task
-    def poem_task_1(self) -> Task:
+    def poem_task_modern(self) -> Task:
         return Task(
-            config=self.tasks_config['poem_task_1'],
-        )
-
-    # @task
-    # def poem_task_2(self) -> Task:
-    #     return Task(
-    #         config=self.tasks_config['poem_task_2'],
-    #     )
-
-    @task
-    def poem_task_free(self) -> Task:
-        return Task(
-            config=self.tasks_config['poem_task_free'],
+            config=self.tasks_config['poem_task_modern'],
         )
 
     @task
-    def critic_task(self) -> Task:
+    def poem_task_classic(self) -> Task:
         return Task(
-            config=self.tasks_config['critic_task'],
-            context=[self.poem_task_1(), self.poem_task_free()],
+            config=self.tasks_config['poem_task_classic'],
+        )
+
+    @task
+    def poem_task_mystic(self) -> Task:
+        return Task(
+            config=self.tasks_config['poem_task_mystic'],
+            context=[self.poem_task_modern(), self.poem_task_classic()],
         )
 
     @crew

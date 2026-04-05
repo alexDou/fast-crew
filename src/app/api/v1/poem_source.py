@@ -22,8 +22,8 @@ async def write_poem_source(
     request: Request,
     file: UploadFile = File(...),
     enhance: str | None = None,
-    current_user: Annotated[dict, Depends(get_current_user)] = None,
-    db: Annotated[AsyncSession, Depends(async_get_db)] = None,
+    current_user: Annotated[dict[str, Any] | None, Depends(get_current_user)] = None,
+    db: Annotated[AsyncSession | None, Depends(async_get_db)] = None,
 ) -> dict[str, Any]:
     """Create a poem source by uploading an image file.
 
@@ -38,6 +38,8 @@ async def write_poem_source(
     """
     if not current_user:
         raise ForbiddenException()
+    if db is None:
+        raise RuntimeError("Database session not available")
 
     # Check request limit: max 3 successful poem generations per account
     existing_sources = await crud_poem_sources.get_multi(
@@ -46,7 +48,8 @@ async def write_poem_source(
         status="success",
         is_deleted=False,
     )
-    success_count = existing_sources["total_count"]
+    total_count = existing_sources["total_count"]
+    success_count = total_count if isinstance(total_count, int) else len(total_count)
     if success_count >= 3:
         raise HTTPException(
             status_code=429,
@@ -78,14 +81,14 @@ async def write_poem_source(
         "media_path": media_path,
         "user_id": current_user["id"],
         "enhance": enhance,
-        "status": "processing"
+        "status": "processing",
     }
 
     poem_source_internal = PoemSourceCreateInternal(**poem_source_internal_dict)
     created_poem_source = await crud_poem_sources.create(
         db=db,
         object=poem_source_internal,
-        schema_to_select=PoemSourceRead
+        schema_to_select=PoemSourceRead,
     )
 
     if created_poem_source is None:
@@ -97,7 +100,7 @@ async def write_poem_source(
         media_path=media_path,
         user_id=current_user["id"],
         enhance=enhance,
-        db_session_maker=local_session
+        db_session_maker=local_session,
     )
 
     return storage_service.attach_media_url(created_poem_source)

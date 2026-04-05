@@ -74,14 +74,14 @@ class StorageService:
             suffix = Path(object_key).suffix
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-                local_path = temp_file.name
+                temp_path = temp_file.name
 
             try:
-                self._get_s3_client().download_file(bucket, object_key, local_path)
+                self._get_s3_client().download_file(bucket, object_key, temp_path)
             except (BotoCoreError, ClientError) as exc:
                 raise StorageError(f"Failed to download media from S3: {exc}") from exc
 
-            return local_path, True
+            return temp_path, True
 
         local_path = self._resolve_local_path(media_path)
         if not local_path.exists():
@@ -172,11 +172,11 @@ class StorageService:
 
     def _generate_presigned_url(self, bucket: str, object_key: str) -> str:
         try:
-            return self._get_s3_client().generate_presigned_url(
+            return str(self._get_s3_client().generate_presigned_url(
                 ClientMethod="get_object",
                 Params={"Bucket": bucket, "Key": object_key},
                 ExpiresIn=settings.S3_SIGNED_URL_EXPIRE_SECONDS,
-            )
+            ))
         except (BotoCoreError, ClientError) as exc:
             raise StorageError(f"Failed to generate pre-signed URL for media object: {exc}") from exc
 

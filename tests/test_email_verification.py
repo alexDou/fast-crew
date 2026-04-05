@@ -16,6 +16,7 @@ class TestVerifyEmail:
     async def test_verify_email_success(self, mock_db):
         """Test successful email verification."""
         mock_request = Mock()
+        mock_request.base_url = "http://testserver/"
         token_payload = {"sub": "test@test.com", "purpose": "email_verification", "exp": 9999999999}
 
         with patch("src.app.api.v1.users.jwt") as mock_jwt:
@@ -34,7 +35,8 @@ class TestVerifyEmail:
 
                 result = await verify_email(mock_request, "valid_token", mock_db)
 
-                assert result["message"] == "Email verified successfully. You can now log in."
+                assert result.status_code == 303
+                assert result.headers["location"] == "http://testserver/signin"
                 mock_db.execute.assert_called_once()
                 mock_db.commit.assert_called_once()
 
@@ -42,6 +44,7 @@ class TestVerifyEmail:
     async def test_verify_email_already_verified(self, mock_db):
         """Test verification when email is already verified."""
         mock_request = Mock()
+        mock_request.base_url = "http://testserver/"
         token_payload = {"sub": "test@test.com", "purpose": "email_verification", "exp": 9999999999}
 
         with patch("src.app.api.v1.users.jwt") as mock_jwt:
@@ -56,7 +59,9 @@ class TestVerifyEmail:
 
                 result = await verify_email(mock_request, "valid_token", mock_db)
 
-                assert result["message"] == "Email already verified"
+                assert result.status_code == 303
+                assert result.headers["location"] == "http://testserver/signin"
+                mock_crud.update.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_verify_email_invalid_token(self, mock_db):

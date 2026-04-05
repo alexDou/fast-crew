@@ -1,8 +1,8 @@
+import enum
 from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
-import enum
 
 from ..core.db.database import Base
 

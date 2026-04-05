@@ -53,18 +53,6 @@ class CrewAIService:
             return cls.INDISTINCT_CONTENT_MESSAGE
         return None
 
-    @staticmethod
-    def _get_first_line_normalized(text: str) -> str:
-        import re
-
-        if not text:
-            return ""
-
-        first_line = text.strip().split('\n')[0]
-        normalized = re.sub(r'\s+', '', first_line).lower()
-
-        return normalized
-
     async def _update_poem_source_status(
         self,
         db: AsyncSession,
@@ -76,7 +64,7 @@ class CrewAIService:
 
         await crud_poem_sources.update(
             db=db,
-            object=PoemSourceUpdate(status=status),
+            object=PoemSourceUpdate(media_path=None, status=status),
             id=poem_source_id
         )
         await db.commit()
@@ -87,30 +75,14 @@ class CrewAIService:
         user_id: int,
         poem_source_id: int,
         poems: dict[str, str],
-        critic_choice: str | None
     ):
         from datetime import UTC, datetime
 
         from ..crud.crud_poems import crud_poems
         from ..schemas.poem import PoemCreateInternal
 
-        critic_first_line = self._get_first_line_normalized(critic_choice) if critic_choice else ""
-
-        poem_first_lines = {}
-        for key, text in poems.items():
-            if text and text.strip():
-                poem_first_lines[key] = self._get_first_line_normalized(text)
-
-        for key, poem_text in poems.items():
+        for poem_text in poems.values():
             if poem_text and poem_text.strip():  # Only save non-empty poems
-                poem_first_line = poem_first_lines.get(key, "")
-
-                is_critic_choice = (
-                    critic_first_line and
-                    poem_first_line and
-                    poem_first_line == critic_first_line
-                )
-
                 # Generate datetime directly to avoid serialization issues
                 now = datetime.now(UTC).replace(tzinfo=None)
 
@@ -118,7 +90,6 @@ class CrewAIService:
                     user_id=user_id,
                     poem_source_id=poem_source_id,
                     poem=poem_text,
-                    critic_choice=is_critic_choice,
                     created_at=now,
                     updated_at=None
                 )
@@ -132,14 +103,13 @@ class CrewAIService:
         poem_source_id: int,
         image_analysis: str,
         poems: dict[str, str | None],
-        critic: str | None,
     ) -> None:
         """Persist generated markdown artifacts via the configured storage backend."""
         artifacts = {
             "image_analysis.md": image_analysis,
-            "poet_1.md": poems.get("poem_1") or "",
-            "poet_free.md": poems.get("poem_free") or "",
-            "critic.md": critic or "",
+            "poet_modern.md": poems.get("poet_modern") or "",
+            "poet_classic.md": poems.get("poet_classic") or "",
+            "poet_mystic.md": poems.get("poet_mystic") or "",
         }
 
         for filename, content in artifacts.items():
@@ -172,9 +142,9 @@ class CrewAIService:
             return crew_instance.crew().kickoff(inputs=inputs)
         except Exception as e:
             if self._is_rate_limit_error(e):
-                fallback = crew_cls.POET_FREE_FALLBACK_MODEL
+                fallback = crew_cls.POET_FALLBACK_MODEL
                 logger.warning(f"Rate limit hit on default model, retrying with {fallback}: {e}")
-                crew_instance = crew_cls(poet_free_model=fallback)
+                crew_instance = crew_cls(poet_model=fallback)
                 return crew_instance.crew().kickoff(inputs=inputs)
             raise
 
@@ -282,21 +252,21 @@ class CrewAIService:
             result = self._kickoff_with_fallback(PoetsCrew, inputs)
             logger.info("PoetsCrew completed successfully")
 
-            # Tasks: 0=poem_1, 1=poem_free, 2=critic
-            poem_1 = result.tasks_output[0].raw if len(result.tasks_output) > 0 else None
-            poem_free = result.tasks_output[1].raw if len(result.tasks_output) > 1 else None
-            critic = result.tasks_output[2].raw if len(result.tasks_output) > 2 else None
+            # Tasks: 0=poet_modern, 1=poet_classic, 2=poet_mystic
+            poet_modern = result.tasks_output[0].raw if len(result.tasks_output) > 0 else None
+            poet_classic = result.tasks_output[1].raw if len(result.tasks_output) > 1 else None
+            poet_mystic = result.tasks_output[2].raw if len(result.tasks_output) > 2 else None
 
             poems = {
-                "poem_1": poem_1,
-                "poem_free": poem_free
+                "poet_modern": poet_modern,
+                "poet_classic": poet_classic,
+                "poet_mystic": poet_mystic,
             }
 
             self._persist_output_artifacts(
                 poem_source_id=poem_source_id,
                 image_analysis=image_analysis,
                 poems=poems,
-                critic=critic,
             )
 
             # Save poems using new async engine in this thread's event loop
@@ -323,7 +293,6 @@ class CrewAIService:
                             user_id=user_id,
                             poem_source_id=poem_source_id,
                             poems=poems,
-                            critic_choice=critic
                         )
 
                         await self._update_poem_source_status(
@@ -353,7 +322,7 @@ class CrewAIService:
             return {
                 "image_analysis": image_analysis,
                 "poems": poems,
-                "critic": critic
+                "poet_mystic": poet_mystic
             }
 
         except Exception as e:
@@ -419,6 +388,7 @@ class CrewAIService:
                 logger.error(f"Failed to remove uploaded media {media_path}: {file_err}")
 
             logger.error(f"Poem generation failed for source_id={poem_source_id}, cleanup complete")
+            return {"image_analysis": "", "poems": {}, "poet_mystic": None}
         finally:
             if should_cleanup_local_image and local_image_path and os.path.exists(local_image_path):
                 try:

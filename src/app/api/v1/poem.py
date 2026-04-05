@@ -69,7 +69,7 @@ async def read_poems(
 @cache(key_prefix="{id}_poem_cache", resource_id_name="id")
 async def read_poem(
     request: Request,
-    id: int, 
+    id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_user: Annotated[dict, Depends(get_current_user)],
 ) -> dict[str, Any]:
@@ -129,7 +129,7 @@ async def erase_poem(
 @cache("{id}_poem_cache", resource_id_name="id", to_invalidate_extra={"{id}_poems": "{id}"})
 async def erase_db_poem(
     request: Request,
-    id: int, 
+    id: int,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_user: Annotated[dict, Depends(get_current_user)],
 ) -> dict[str, str]:

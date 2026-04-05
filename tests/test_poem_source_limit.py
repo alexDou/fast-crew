@@ -51,15 +51,29 @@ class TestPoemSourceRequestLimit:
         mock_file.filename = "test.jpg"
         mock_file.read = AsyncMock(return_value=b"fake image data")
         mock_file.close = AsyncMock()
+        created_poem_source = {
+            "id": 1,
+            "media_path": "s3://bucket/test.jpg",
+            "user_id": 1,
+            "status": "processing",
+            "created_at": "2026-01-01",
+        }
+        response_poem_source = {
+            "id": 1,
+            "media_path": "https://signed-url",
+            "user_id": 1,
+            "status": "processing",
+            "created_at": "2026-01-01",
+        }
 
         with patch("src.app.api.v1.poem_source.crud_poem_sources") as mock_crud:
             mock_crud.get_multi = AsyncMock(return_value={"data": [{}, {}], "total_count": 2})
-            mock_crud.create = AsyncMock(return_value={"id": 1, "media_path": "s3://bucket/test.jpg", "user_id": 1, "status": "processing", "created_at": "2026-01-01"})
+            mock_crud.create = AsyncMock(return_value=created_poem_source)
 
             with patch("src.app.api.v1.poem_source.storage_service") as mock_storage:
                 mock_storage.build_media_object_key.return_value = "media/test/uuid.jpg"
-                mock_storage.upload_upload_file = AsyncMock(return_value="s3://bucket/test.jpg")
-                mock_storage.attach_media_url.return_value = {"id": 1, "media_path": "s3://bucket/test.jpg", "media_url": "https://signed-url", "user_id": 1, "status": "processing", "created_at": "2026-01-01"}
+                mock_storage.upload_source_file = AsyncMock(return_value="s3://bucket/test.jpg")
+                mock_storage.attach_media_url.return_value = response_poem_source
 
                 with patch("src.app.api.v1.poem_source.crewai_service") as mock_crew:
                     mock_crew.start_poem_generation = Mock()
@@ -77,15 +91,29 @@ class TestPoemSourceRequestLimit:
         mock_file.filename = "test.png"
         mock_file.read = AsyncMock(return_value=b"fake image data")
         mock_file.close = AsyncMock()
+        created_poem_source = {
+            "id": 1,
+            "media_path": "s3://b/t.png",
+            "user_id": 1,
+            "status": "processing",
+            "created_at": "2026-01-01",
+        }
+        response_poem_source = {
+            "id": 1,
+            "media_path": "https://url",
+            "user_id": 1,
+            "status": "processing",
+            "created_at": "2026-01-01",
+        }
 
         with patch("src.app.api.v1.poem_source.crud_poem_sources") as mock_crud:
             mock_crud.get_multi = AsyncMock(return_value={"data": [], "total_count": 0})
-            mock_crud.create = AsyncMock(return_value={"id": 1, "media_path": "s3://b/t.png", "user_id": 1, "status": "processing", "created_at": "2026-01-01"})
+            mock_crud.create = AsyncMock(return_value=created_poem_source)
 
             with patch("src.app.api.v1.poem_source.storage_service") as mock_storage:
                 mock_storage.build_media_object_key.return_value = "media/test/uuid.png"
-                mock_storage.upload_upload_file = AsyncMock(return_value="s3://b/t.png")
-                mock_storage.attach_media_url.return_value = {"id": 1, "media_path": "s3://b/t.png", "media_url": "https://url", "user_id": 1, "status": "processing", "created_at": "2026-01-01"}
+                mock_storage.upload_source_file = AsyncMock(return_value="s3://b/t.png")
+                mock_storage.attach_media_url.return_value = response_poem_source
 
                 with patch("src.app.api.v1.poem_source.crewai_service") as mock_crew:
                     mock_crew.start_poem_generation = Mock()

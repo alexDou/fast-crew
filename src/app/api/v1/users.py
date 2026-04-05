@@ -201,7 +201,6 @@ async def verify_email(
     if db_user.get("is_email_verified", False):
         return RedirectResponse(url=login_url, status_code=303)
 
-    await crud_users.update(db=db, object=UserUpdate(), username=db_user["username"])
     # Direct SQL update for is_email_verified since it's not in UserUpdate schema
     from sqlalchemy import update as sql_update
 
