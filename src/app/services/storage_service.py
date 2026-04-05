@@ -37,7 +37,7 @@ class StorageService:
         media_prefix = settings.S3_MEDIA_PREFIX.strip("/")
         return f"{media_prefix}/{safe_username}/{uuid.uuid4()}{file_extension}"
 
-    async def upload_upload_file(self, file: UploadFile, object_key: str) -> str:
+    async def upload_source_file(self, file: UploadFile, object_key: str) -> str:
         """Upload a FastAPI UploadFile and return the stored path reference."""
         if self.is_s3_backend:
             return await asyncio.to_thread(self._upload_file_to_s3, file, object_key)

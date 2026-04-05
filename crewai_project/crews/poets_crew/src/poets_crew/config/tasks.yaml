@@ -36,7 +36,12 @@ poem_task_free:
 critic_task:
   description: >
     Review the two poems provided in the context and analyze their quality, style, and effectiveness.
-    Compare them and determine which one best captures the essence of the image.
+    Compare them and determine which one best captures the essence of the image and the user intent.
+    {enhance}
+
+    IMAGE ANALYSIS:
+    {image_analysis}
+
     Provide detailed criticism for each poem.
   expected_output: >
     A fully detailed critical analysis report with sections for each poem.

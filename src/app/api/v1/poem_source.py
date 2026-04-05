@@ -67,7 +67,7 @@ async def write_poem_source(
     object_key = storage_service.build_media_object_key(current_user["username"], file_extension)
 
     try:
-        media_path = await storage_service.upload_upload_file(file=file, object_key=object_key)
+        media_path = await storage_service.upload_source_file(file=file, object_key=object_key)
     except StorageError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
