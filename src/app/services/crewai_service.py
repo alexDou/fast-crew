@@ -64,7 +64,7 @@ class CrewAIService:
 
         await crud_poem_sources.update(
             db=db,
-            object=PoemSourceUpdate(media_path=None, status=status),
+            object=PoemSourceUpdate(status=status),
             id=poem_source_id
         )
         await db.commit()
@@ -150,15 +150,13 @@ class CrewAIService:
 
     @staticmethod
     def _resolve_openrouter_api_key() -> str:
-        """Resolve OpenRouter API key from settings/env and make it available to imported crew modules."""
+        """Resolve OpenRouter API key from settings and expose it to imported crew modules."""
         from ..core.config import settings
 
-        configured_key = settings.OPENROUTER_API_KEY.get_secret_value() if settings.OPENROUTER_API_KEY else None
-        api_key = configured_key or os.getenv("OPENROUTER_API_KEY")
-
-        if not api_key:
+        if not settings.OPENROUTER_API_KEY:
             raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
+        api_key = settings.OPENROUTER_API_KEY.get_secret_value()
         os.environ["OPENROUTER_API_KEY"] = api_key
         return api_key
 
@@ -276,7 +274,7 @@ class CrewAIService:
 
             async def save_results():
                 # Create a new engine and session factory for this thread
-                database_url = f"{settings.POSTGRES_ASYNC_PREFIX}{settings.POSTGRES_URI}"
+                database_url = settings.POSTGRES_ASYNC_DATABASE_URL
                 engine = create_async_engine(
                     database_url,
                     echo=False,
@@ -339,7 +337,7 @@ class CrewAIService:
             from ..core.config import settings
 
             async def cleanup_on_error():
-                database_url = f"{settings.POSTGRES_ASYNC_PREFIX}{settings.POSTGRES_URI}"
+                database_url = settings.POSTGRES_ASYNC_DATABASE_URL
                 engine = create_async_engine(
                     database_url,
                     echo=False,

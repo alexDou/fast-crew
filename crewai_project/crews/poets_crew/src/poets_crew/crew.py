@@ -4,10 +4,13 @@ from crewai import LLM, Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.knowledge.source.text_file_knowledge_source import TextFileKnowledgeSource
 from crewai.project import CrewBase, agent, crew, task
-from dotenv import load_dotenv
 
-load_dotenv()
-openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+
+def _get_openrouter_api_key() -> str:
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is required to initialize PoetsCrew")
+    return api_key
 
 
 @CrewBase
@@ -40,7 +43,7 @@ class PoetsCrew:
         llm = LLM(
             model=self._poet_model,
             base_url="https://openrouter.ai/api/v1",
-            api_key=openrouter_api_key
+            api_key=_get_openrouter_api_key()
         )
         return Agent(
             llm=llm,
@@ -53,7 +56,7 @@ class PoetsCrew:
         llm = LLM(
             model=self._poet_model,
             base_url="https://openrouter.ai/api/v1",
-            api_key=openrouter_api_key
+            api_key=_get_openrouter_api_key()
         )
         return Agent(
             llm=llm,
@@ -66,7 +69,7 @@ class PoetsCrew:
         llm = LLM(
             model=self._poet_mystic_model,
             base_url="https://openrouter.ai/api/v1",
-            api_key=openrouter_api_key
+            api_key=_get_openrouter_api_key()
         )
         return Agent(
             llm=llm,

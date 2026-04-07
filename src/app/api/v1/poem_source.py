@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,7 @@ router = APIRouter(tags=["poems_source"])
 async def write_poem_source(
     request: Request,
     file: UploadFile = File(...),
-    enhance: str | None = None,
+    enhance: Annotated[str | None, Form()] = None,
     current_user: Annotated[dict[str, Any] | None, Depends(get_current_user)] = None,
     db: Annotated[AsyncSession | None, Depends(async_get_db)] = None,
 ) -> dict[str, Any]:
@@ -40,6 +40,10 @@ async def write_poem_source(
         raise ForbiddenException()
     if db is None:
         raise RuntimeError("Database session not available")
+
+    normalized_enhance = None
+    if enhance is not None:
+        normalized_enhance = enhance.strip() or None
 
     # Check request limit: max 3 successful poem generations per account
     existing_sources = await crud_poem_sources.get_multi(
@@ -80,7 +84,7 @@ async def write_poem_source(
     poem_source_internal_dict = {
         "media_path": media_path,
         "user_id": current_user["id"],
-        "enhance": enhance,
+        "enhance": normalized_enhance,
         "status": "processing",
     }
 
@@ -99,7 +103,7 @@ async def write_poem_source(
         poem_source_id=created_poem_source["id"],
         media_path=media_path,
         user_id=current_user["id"],
-        enhance=enhance,
+        enhance=normalized_enhance,
         db_session_maker=local_session,
     )
 
