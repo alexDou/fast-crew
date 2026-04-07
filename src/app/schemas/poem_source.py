@@ -80,14 +80,8 @@ class PoemSourceCreateInternal(PoemSourceCreate):
 class PoemSourceUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    media_path: Annotated[
-        str | None,
-        Field(default=None),
-    ]
-    status: Annotated[
-        str | None,
-        Field(default=None),
-    ]
+    media_path: str | None = None
+    status: str | None = None
 
 
 class PoemSourceUpdateInternal(PoemSourceUpdate):

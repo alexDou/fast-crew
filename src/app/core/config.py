@@ -207,4 +207,6 @@ class Settings(
     )
 
 
-settings = Settings()
+# pydantic-settings loads required fields from the environment at runtime,
+# but mypy treats the generated __init__ like a normal required-args constructor.
+settings = Settings()  # type: ignore[call-arg]

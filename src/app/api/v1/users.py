@@ -74,8 +74,12 @@ async def write_user(
     if created_user is None:
         raise NotFoundException("Failed to create user")
 
-    verification_token = await create_email_verification_token(data={"sub": user.email})
-    await _send_verification_email(request=request, to_email=user.email, to_name=user.name, token=verification_token)
+    try:
+        verification_token = await create_email_verification_token(data={"sub": user.email})
+        await _send_verification_email(request=request, to_email=user.email, to_name=user.name, token=verification_token)
+    except Exception:
+        import structlog
+        structlog.get_logger(__name__).error("Failed to send verification email during signup", email=user.email)
 
     return created_user
 
