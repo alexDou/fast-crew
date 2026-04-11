@@ -11,10 +11,7 @@ class Base(DeclarativeBase, MappedAsDataclass):
     pass
 
 
-DATABASE_URL = settings.POSTGRES_ASYNC_DATABASE_URL
-
-
-async_engine = create_async_engine(DATABASE_URL, echo=False, future=True)
+async_engine = create_async_engine(settings.POSTGRES_ASYNC_DATABASE_URL, echo=False, future=True)
 
 local_session = async_sessionmaker(bind=async_engine, class_=AsyncSession, expire_on_commit=False)
 

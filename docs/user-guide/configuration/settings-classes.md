@@ -1,13 +1,39 @@
 # Settings Classes
 
-Learn how Python settings classes validate, structure, and organize your application configuration. The boilerplate uses Pydantic's `BaseSettings` for type-safe configuration management.
+`src/app/core/config.py` is the backend's configuration schema. Runtime values come from `src/.env`, and application code should read them through the shared `settings` instance instead of duplicating literals in feature modules.
 
-## Settings Architecture
+## Source Of Truth
 
-The main `Settings` class inherits from multiple specialized setting groups:
+The current configuration pipeline is:
+
+1. `src/.env` stores environment-specific values.
+2. `Settings` in `src/app/core/config.py` parses and validates them.
+3. The rest of the app imports `settings` and uses either raw fields or computed fields.
+
+Derived values such as PostgreSQL URLs are intentionally built inside `Settings` so the connection details still come from `.env` in one place.
+
+## Env File Loading
+
+The backend loads settings from `src/.env` using:
 
 ```python
-# src/app/core/config.py
+model_config = SettingsConfigDict(
+    env_file=ENV_FILE_PATH,
+    env_file_encoding="utf-8",
+    case_sensitive=True,
+    env_ignore_empty=True,
+    env_parse_none_str="None",
+    extra="ignore",
+)
+```
+
+`extra="ignore"` is intentional today because the repository may also keep non-app secrets in the same `.env` for CrewAI tooling. Application code should still only consume fields declared in `Settings`.
+
+## Current Settings Composition
+
+The main settings object inherits from these groups:
+
+```python
 class Settings(
     AppSettings,
     PostgresSettings,
@@ -16,538 +42,261 @@ class Settings(
     RedisCacheSettings,
     ClientSideCacheSettings,
     RedisQueueSettings,
-    RedisRateLimiterSettings,
-    DefaultRateLimitSettings,
+    StorageSettings,
+    OpenRouterSettings,
+    EmailSettings,
+    CRUDAdminSettings,
     EnvironmentSettings,
     CORSSettings,
+    FileLoggerSettings,
+    ConsoleLoggerSettings,
 ):
-    pass
-
-
-# Single instance used throughout the app
-settings = Settings()
+    ...
 ```
 
-## Built-in Settings Groups
+## Current Settings Groups
 
-### Application Settings
-
-Basic app metadata and configuration:
+### Application Metadata
 
 ```python
 class AppSettings(BaseSettings):
-    APP_NAME: str = "FastAPI"
-    APP_DESCRIPTION: str = "A FastAPI project"
-    APP_VERSION: str = "0.1.0"
-    CONTACT_NAME: str = "Your Name"
-    CONTACT_EMAIL: str = "your.email@example.com"
-    LICENSE_NAME: str = "MIT"
+    APP_NAME: str
+    APP_DESCRIPTION: str | None
+    APP_VERSION: str | None
+    LICENSE_NAME: str | None
+    CONTACT_NAME: str | None
+    CONTACT_EMAIL: str | None
 ```
 
-### Database Settings
+Used by the OpenAPI metadata and health endpoints.
 
-PostgreSQL connection configuration:
+### JWT And Auth
+
+```python
+class CryptSettings(BaseSettings):
+    SECRET_KEY: SecretStr
+    ALGORITHM: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int
+    REFRESH_TOKEN_EXPIRE_DAYS: int
+```
+
+Used by `src/app/core/security.py` and the login/refresh/logout routes.
+
+### PostgreSQL
 
 ```python
 class PostgresSettings(BaseSettings):
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_PORT: int = 5432
+    POSTGRES_SERVER: str
+    POSTGRES_PORT: int
     POSTGRES_DB: str
+    POSTGRES_SYNC_PREFIX: str
+    POSTGRES_ASYNC_PREFIX: str
 
     @computed_field
     @property
-    def DATABASE_URL(self) -> str:
-        return (
-            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
-            f"{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:"
-            f"{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-        )
+    def POSTGRES_URI(self) -> str:
+        credentials = f"{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+        location = f"{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        return f"{credentials}@{location}"
+
+    @computed_field
+    @property
+    def POSTGRES_SYNC_DATABASE_URL(self) -> str:
+        return f"{self.POSTGRES_SYNC_PREFIX}{self.POSTGRES_URI}"
+
+    @computed_field
+    @property
+    def POSTGRES_ASYNC_DATABASE_URL(self) -> str:
+        return f"{self.POSTGRES_ASYNC_PREFIX}{self.POSTGRES_URI}"
 ```
 
-### Security Settings
+This is the current single source of truth for database connection construction.
 
-JWT and authentication configuration:
-
-```python
-class CryptSettings(BaseSettings):
-    SECRET_KEY: str
-    ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-
-    @field_validator("SECRET_KEY")
-    @classmethod
-    def validate_secret_key(cls, v: str) -> str:
-        if len(v) < 32:
-            raise ValueError("SECRET_KEY must be at least 32 characters")
-        return v
-```
-
-### Redis Settings
-
-Separate Redis instances for different services:
-
-```python
-class RedisCacheSettings(BaseSettings):
-    REDIS_CACHE_HOST: str = "localhost"
-    REDIS_CACHE_PORT: int = 6379
-
-
-class RedisQueueSettings(BaseSettings):
-    REDIS_QUEUE_HOST: str = "localhost"
-    REDIS_QUEUE_PORT: int = 6379
-
-
-class RedisRateLimiterSettings(BaseSettings):
-    REDIS_RATE_LIMIT_HOST: str = "localhost"
-    REDIS_RATE_LIMIT_PORT: int = 6379
-```
-
-### Rate Limiting Settings
-
-Default rate limiting configuration:
-
-```python
-class DefaultRateLimitSettings(BaseSettings):
-    DEFAULT_RATE_LIMIT_LIMIT: int = 10
-    DEFAULT_RATE_LIMIT_PERIOD: int = 3600  # 1 hour
-```
-
-### Admin User Settings
-
-First superuser account creation:
+### Admin Bootstrap User
 
 ```python
 class FirstUserSettings(BaseSettings):
-    ADMIN_NAME: str = "Admin"
+    ADMIN_NAME: str
     ADMIN_EMAIL: str
-    ADMIN_USERNAME: str = "admin"
+    ADMIN_USERNAME: str
     ADMIN_PASSWORD: str
-
-    @field_validator("ADMIN_EMAIL")
-    @classmethod
-    def validate_admin_email(cls, v: str) -> str:
-        if "@" not in v:
-            raise ValueError("ADMIN_EMAIL must be a valid email")
-        return v
 ```
 
-## Creating Custom Settings
+Used by CRUDAdmin initialization and bootstrap flows.
 
-### Basic Custom Settings
-
-Add your own settings group:
+### Redis And Client Cache
 
 ```python
-class CustomSettings(BaseSettings):
-    CUSTOM_API_KEY: str = ""
-    CUSTOM_TIMEOUT: int = 30
-    ENABLE_FEATURE_X: bool = False
-    MAX_UPLOAD_SIZE: int = 10485760  # 10MB
-
-    @field_validator("MAX_UPLOAD_SIZE")
-    @classmethod
-    def validate_upload_size(cls, v: int) -> int:
-        if v < 1024:  # 1KB minimum
-            raise ValueError("MAX_UPLOAD_SIZE must be at least 1KB")
-        if v > 104857600:  # 100MB maximum
-            raise ValueError("MAX_UPLOAD_SIZE cannot exceed 100MB")
-        return v
-
-
-# Add to main Settings class
-class Settings(
-    AppSettings,
-    PostgresSettings,
-    # ... other settings ...
-    CustomSettings,  # Add your custom settings
-):
-    pass
-```
-
-### Advanced Custom Settings
-
-Settings with complex validation and computed fields:
-
-```python
-class EmailSettings(BaseSettings):
-    SMTP_HOST: str = ""
-    SMTP_PORT: int = 587
-    SMTP_USERNAME: str = ""
-    SMTP_PASSWORD: str = ""
-    SMTP_USE_TLS: bool = True
-    EMAIL_FROM: str = ""
-    EMAIL_FROM_NAME: str = ""
+class RedisCacheSettings(BaseSettings):
+    REDIS_CACHE_HOST: str
+    REDIS_CACHE_PORT: int
 
     @computed_field
     @property
-    def EMAIL_ENABLED(self) -> bool:
-        return bool(self.SMTP_HOST and self.SMTP_USERNAME)
+    def REDIS_CACHE_URL(self) -> str:
+        return f"redis://{self.REDIS_CACHE_HOST}:{self.REDIS_CACHE_PORT}"
 
-    @model_validator(mode="after")
-    def validate_email_config(self) -> "EmailSettings":
-        if self.SMTP_HOST and not self.EMAIL_FROM:
-            raise ValueError("EMAIL_FROM required when SMTP_HOST is set")
-        if self.SMTP_USERNAME and not self.SMTP_PASSWORD:
-            raise ValueError("SMTP_PASSWORD required when SMTP_USERNAME is set")
-        return self
+
+class ClientSideCacheSettings(BaseSettings):
+    CLIENT_CACHE_MAX_AGE: int
+
+
+class RedisQueueSettings(BaseSettings):
+    REDIS_QUEUE_HOST: str
+    REDIS_QUEUE_PORT: int
 ```
 
-### Feature Flag Settings
+`REDIS_CACHE_URL` is used by the app cache pool. Queue workers still consume host and port separately because `arq.RedisSettings` expects them that way.
 
-Organize feature toggles:
-
-```python
-class FeatureSettings(BaseSettings):
-    # Core features
-    ENABLE_CACHING: bool = True
-    ENABLE_RATE_LIMITING: bool = True
-    ENABLE_BACKGROUND_JOBS: bool = True
-
-    # Optional features
-    ENABLE_ANALYTICS: bool = False
-    ENABLE_EMAIL_NOTIFICATIONS: bool = False
-    ENABLE_FILE_UPLOADS: bool = False
-
-    # Experimental features
-    ENABLE_EXPERIMENTAL_API: bool = False
-    ENABLE_BETA_FEATURES: bool = False
-
-    @model_validator(mode="after")
-    def validate_feature_dependencies(self) -> "FeatureSettings":
-        if self.ENABLE_EMAIL_NOTIFICATIONS and not self.ENABLE_BACKGROUND_JOBS:
-            raise ValueError("Email notifications require background jobs")
-        return self
-```
-
-## Settings Validation
-
-### Field Validation
-
-Validate individual fields:
-
-```python
-class DatabaseSettings(BaseSettings):
-    DB_POOL_SIZE: int = 20
-    DB_MAX_OVERFLOW: int = 30
-    DB_TIMEOUT: int = 30
-
-    @field_validator("DB_POOL_SIZE")
-    @classmethod
-    def validate_pool_size(cls, v: int) -> int:
-        if v < 1:
-            raise ValueError("Pool size must be at least 1")
-        if v > 100:
-            raise ValueError("Pool size should not exceed 100")
-        return v
-
-    @field_validator("DB_TIMEOUT")
-    @classmethod
-    def validate_timeout(cls, v: int) -> int:
-        if v < 5:
-            raise ValueError("Timeout must be at least 5 seconds")
-        return v
-```
-
-### Model Validation
-
-Validate across multiple fields:
-
-```python
-class SecuritySettings(BaseSettings):
-    ENABLE_HTTPS: bool = False
-    SSL_CERT_PATH: str = ""
-    SSL_KEY_PATH: str = ""
-    FORCE_SSL: bool = False
-
-    @model_validator(mode="after")
-    def validate_ssl_config(self) -> "SecuritySettings":
-        if self.ENABLE_HTTPS:
-            if not self.SSL_CERT_PATH:
-                raise ValueError("SSL_CERT_PATH required when HTTPS enabled")
-            if not self.SSL_KEY_PATH:
-                raise ValueError("SSL_KEY_PATH required when HTTPS enabled")
-
-        if self.FORCE_SSL and not self.ENABLE_HTTPS:
-            raise ValueError("Cannot force SSL without enabling HTTPS")
-
-        return self
-```
-
-### Environment-Specific Validation
-
-Different validation rules per environment:
-
-```python
-class EnvironmentSettings(BaseSettings):
-    ENVIRONMENT: str = "local"
-    DEBUG: bool = True
-
-    @model_validator(mode="after")
-    def validate_environment_config(self) -> "EnvironmentSettings":
-        if self.ENVIRONMENT == "production":
-            if self.DEBUG:
-                raise ValueError("DEBUG must be False in production")
-
-        if self.ENVIRONMENT not in ["local", "staging", "production"]:
-            raise ValueError("ENVIRONMENT must be local, staging, or production")
-
-        return self
-```
-
-## Computed Properties
-
-### Dynamic Configuration
-
-Create computed values from other settings:
+### Storage
 
 ```python
 class StorageSettings(BaseSettings):
-    STORAGE_TYPE: str = "local"  # local, s3, gcs
+    STORAGE_BACKEND: str
+    LOCAL_STORAGE_ROOT: str
 
-    # Local storage
-    LOCAL_STORAGE_PATH: str = "./uploads"
+    S3_BUCKET_NAME: str | None
+    S3_REGION: str
+    S3_ENDPOINT_URL: str | None
+    S3_MEDIA_PREFIX: str
+    S3_OUTPUT_PREFIX: str
+    S3_SIGNED_URL_EXPIRE_SECONDS: int
 
-    # S3 settings
-    AWS_ACCESS_KEY_ID: str = ""
-    AWS_SECRET_ACCESS_KEY: str = ""
-    AWS_BUCKET_NAME: str = ""
-    AWS_REGION: str = "us-east-1"
-
-    @computed_field
-    @property
-    def STORAGE_ENABLED(self) -> bool:
-        if self.STORAGE_TYPE == "local":
-            return bool(self.LOCAL_STORAGE_PATH)
-        elif self.STORAGE_TYPE == "s3":
-            return bool(self.AWS_ACCESS_KEY_ID and self.AWS_SECRET_ACCESS_KEY and self.AWS_BUCKET_NAME)
-        return False
-
-    @computed_field
-    @property
-    def STORAGE_CONFIG(self) -> dict:
-        if self.STORAGE_TYPE == "local":
-            return {"path": self.LOCAL_STORAGE_PATH}
-        elif self.STORAGE_TYPE == "s3":
-            return {
-                "bucket": self.AWS_BUCKET_NAME,
-                "region": self.AWS_REGION,
-                "credentials": {
-                    "access_key": self.AWS_ACCESS_KEY_ID,
-                    "secret_key": self.AWS_SECRET_ACCESS_KEY,
-                },
-            }
-        return {}
+    AWS_ACCESS_KEY_ID: str | None
+    AWS_SECRET_ACCESS_KEY: str | None
+    AWS_SESSION_TOKEN: str | None
+    AWS_PROFILE: str | None
 ```
 
-## Organizing Settings
+Used by `src/app/services/storage_service.py` for both local and S3-backed media/output storage.
 
-### Service-Based Organization
-
-Group settings by service or domain:
+### LLM Provider Access
 
 ```python
-# Authentication service settings
-class AuthSettings(BaseSettings):
-    JWT_SECRET_KEY: str
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE: int = 30
-    REFRESH_TOKEN_EXPIRE: int = 7200
-    PASSWORD_MIN_LENGTH: int = 8
-
-
-# Notification service settings
-class NotificationSettings(BaseSettings):
-    EMAIL_ENABLED: bool = False
-    SMS_ENABLED: bool = False
-    PUSH_ENABLED: bool = False
-
-    # Email settings
-    SMTP_HOST: str = ""
-    SMTP_PORT: int = 587
-
-    # SMS settings (example with Twilio)
-    TWILIO_ACCOUNT_SID: str = ""
-    TWILIO_AUTH_TOKEN: str = ""
-
-
-# Main settings
-class Settings(
-    AppSettings,
-    AuthSettings,
-    NotificationSettings,
-    # ... other settings
-):
-    pass
+class OpenRouterSettings(BaseSettings):
+    OPENROUTER_API_KEY: SecretStr | None
 ```
 
-### Conditional Settings Loading
+This is the only LLM key currently consumed by the FastAPI app code. The CrewAI bundle may have additional tooling-specific env vars, but they are not part of the backend `Settings` schema unless the app itself reads them.
 
-Load different settings based on environment:
+### Email Delivery
 
 ```python
-class BaseAppSettings(BaseSettings):
-    APP_NAME: str = "FastAPI App"
-    DEBUG: bool = False
+class EmailSettings(BaseSettings):
+    SMTP_HOST: str | None
+    SMTP_PORT: int
+    SMTP_USERNAME: str | None
+    SMTP_PASSWORD: SecretStr | None
+    SMTP_USE_STARTTLS: bool
+    SMTP_USE_SSL: bool
+    SMTP_TIMEOUT_SECONDS: int
 
-
-class DevelopmentSettings(BaseAppSettings):
-    DEBUG: bool = True
-    LOG_LEVEL: str = "DEBUG"
-    DATABASE_ECHO: bool = True
-
-
-class ProductionSettings(BaseAppSettings):
-    DEBUG: bool = False
-    LOG_LEVEL: str = "WARNING"
-    DATABASE_ECHO: bool = False
-
-
-def get_settings() -> BaseAppSettings:
-    environment = os.getenv("ENVIRONMENT", "local")
-
-    if environment == "production":
-        return ProductionSettings()
-    else:
-        return DevelopmentSettings()
-
-
-settings = get_settings()
+    EMAIL_FROM_NAME: str
+    EMAIL_FROM_ADDRESS: str | None
+    EMAIL_REPLY_TO: str | None
+    EMAIL_VERIFICATION_BASE_URL: str | None
+    EMAIL_VERIFICATION_EXPIRE_DAYS: int
 ```
 
-## Removing Unused Services
+Used by the verification email service and email-verification flow.
 
-### Minimal Configuration
-
-Remove services you don't need:
+### CRUDAdmin
 
 ```python
-# Minimal setup without Redis services
-class MinimalSettings(
-    AppSettings,
-    PostgresSettings,
-    CryptSettings,
-    FirstUserSettings,
-    # Removed: RedisCacheSettings
-    # Removed: RedisQueueSettings
-    # Removed: RedisRateLimiterSettings
-    EnvironmentSettings,
-):
-    pass
+class CRUDAdminSettings(BaseSettings):
+    CRUD_ADMIN_ENABLED: bool
+    CRUD_ADMIN_MOUNT_PATH: str
+
+    CRUD_ADMIN_ALLOWED_IPS_LIST: list[str] | None
+    CRUD_ADMIN_ALLOWED_NETWORKS_LIST: list[str] | None
+    CRUD_ADMIN_MAX_SESSIONS: int
+    CRUD_ADMIN_SESSION_TIMEOUT: int
+    SESSION_SECURE_COOKIES: bool
+
+    CRUD_ADMIN_TRACK_EVENTS: bool
+    CRUD_ADMIN_TRACK_SESSIONS: bool
+
+    CRUD_ADMIN_REDIS_ENABLED: bool
+    CRUD_ADMIN_REDIS_HOST: str
+    CRUD_ADMIN_REDIS_PORT: int
+    CRUD_ADMIN_REDIS_DB: int
+    CRUD_ADMIN_REDIS_PASSWORD: str | None
+    CRUD_ADMIN_REDIS_SSL: bool
 ```
 
-### Service Feature Flags
+`SESSION_SECURE_COOKIES` is also used by the login route for the refresh-token cookie, so cookie security now comes from `.env` instead of a hardcoded value.
 
-Use feature flags to conditionally enable services:
+### Environment And CORS
 
 ```python
-class ServiceSettings(BaseSettings):
-    ENABLE_REDIS: bool = True
-    ENABLE_CELERY: bool = True
-    ENABLE_MONITORING: bool = False
+class EnvironmentOption(str, Enum):
+    LOCAL = "local"
+    STAGING = "staging"
+    PRODUCTION = "production"
 
 
-class ConditionalSettings(
-    AppSettings,
-    PostgresSettings,
-    CryptSettings,
-    ServiceSettings,
-):
-    # Add Redis settings only if enabled
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+class EnvironmentSettings(BaseSettings):
+    ENVIRONMENT: EnvironmentOption
 
-        if self.ENABLE_REDIS:
-            # Dynamically add Redis settings
-            self.__class__ = type("ConditionalSettings", (self.__class__, RedisCacheSettings), {})
+
+class CORSSettings(BaseSettings):
+    CORS_ORIGINS: list[str]
+    CORS_METHODS: list[str]
+    CORS_HEADERS: list[str]
 ```
 
-## Testing Settings
+Used by application setup, health responses, and email-verification URL fallbacks.
 
-### Test Configuration
-
-Create separate settings for testing:
+### Logging
 
 ```python
-class TestSettings(BaseSettings):
-    # Override database for testing
-    POSTGRES_DB: str = "test_database"
-
-    # Disable external services
-    ENABLE_REDIS: bool = False
-    ENABLE_EMAIL: bool = False
-
-    # Speed up tests
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 5
-
-    # Test-specific settings
-    TEST_USER_EMAIL: str = "test@example.com"
-    TEST_USER_PASSWORD: str = "testpassword123"
+class FileLoggerSettings(BaseSettings):
+    FILE_LOG_MAX_BYTES: int
+    FILE_LOG_BACKUP_COUNT: int
+    FILE_LOG_FORMAT_JSON: bool
+    FILE_LOG_LEVEL: str
+    FILE_LOG_INCLUDE_REQUEST_ID: bool
+    FILE_LOG_INCLUDE_PATH: bool
+    FILE_LOG_INCLUDE_METHOD: bool
+    FILE_LOG_INCLUDE_CLIENT_HOST: bool
+    FILE_LOG_INCLUDE_STATUS_CODE: bool
 
 
-# Use in tests
-@pytest.fixture
-def test_settings():
-    return TestSettings()
+class ConsoleLoggerSettings(BaseSettings):
+    CONSOLE_LOG_LEVEL: str
+    CONSOLE_LOG_FORMAT_JSON: bool
+    CONSOLE_LOG_INCLUDE_REQUEST_ID: bool
+    CONSOLE_LOG_INCLUDE_PATH: bool
+    CONSOLE_LOG_INCLUDE_METHOD: bool
+    CONSOLE_LOG_INCLUDE_CLIENT_HOST: bool
+    CONSOLE_LOG_INCLUDE_STATUS_CODE: bool
 ```
 
-### Settings Validation Testing
+Used by `src/app/core/logger.py`.
 
-Test your custom settings:
+## Rules For Adding New Settings
 
-```python
-def test_custom_settings_validation():
-    # Test valid configuration
-    settings = CustomSettings(CUSTOM_API_KEY="test-key", CUSTOM_TIMEOUT=60, MAX_UPLOAD_SIZE=5242880)  # 5MB
-    assert settings.CUSTOM_TIMEOUT == 60
+When you add a new application setting:
 
-    # Test validation error
-    with pytest.raises(ValueError, match="MAX_UPLOAD_SIZE cannot exceed 100MB"):
-        CustomSettings(MAX_UPLOAD_SIZE=209715200)  # 200MB
+1. Add the field to the appropriate `BaseSettings` group in `src/app/core/config.py`.
+2. Add the value to `src/.env` and any deployment example files that should carry it.
+3. Read it through `settings`, not through `os.getenv()` or duplicated module constants.
+4. Only use computed fields for derived values such as URLs assembled from env-backed parts.
 
+## What To Avoid
 
-def test_settings_computed_fields():
-    settings = StorageSettings(
-        STORAGE_TYPE="s3",
-        AWS_ACCESS_KEY_ID="test-key",
-        AWS_SECRET_ACCESS_KEY="test-secret",
-        AWS_BUCKET_NAME="test-bucket",
-    )
+- Hardcoding connection strings outside `Settings`
+- Mirroring env values into separate module-level config constants when `settings` can be used directly
+- Reading app config with `os.getenv()` from route or service modules
+- Letting docs describe settings groups that no longer exist
 
-    assert settings.STORAGE_ENABLED is True
-    assert settings.STORAGE_CONFIG["bucket"] == "test-bucket"
-```
+## Quick Audit Checklist
 
-## Best Practices
+Use this when refactoring config-related code:
 
-### Organization
-
-- Group related settings in dedicated classes
-- Use descriptive names for settings groups
-- Keep validation logic close to the settings
-- Document complex validation rules
-
-### Security
-
-- Validate sensitive settings like secret keys
-- Never set default values for secrets in production
-- Use computed fields to derive connection strings
-- Separate test and production configurations
-
-### Performance
-
-- Use `@computed_field` for expensive calculations
-- Cache settings instances appropriately
-- Avoid complex validation in hot paths
-- Use model validators for cross-field validation
-
-### Testing
-
-- Create separate test settings classes
-- Test all validation rules
-- Mock external service settings in tests
-- Use dependency injection for settings in tests
-
-The settings system provides type safety, validation, and organization for your application configuration. Start with the built-in settings and extend them as your application grows!
+1. Is every app-consumed env variable declared in `Settings`?
+2. Is the value read via `settings` everywhere in app code?
+3. Is a computed field used only for derivation, not as a second source of truth?
+4. Do `.env` examples and docs match the current schema?

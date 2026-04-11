@@ -44,18 +44,14 @@ async def write_user(
 ) -> dict[str, Any]:
     existing_user = await crud_users.get(db=db, email=user.email, is_deleted=False)
     if existing_user:
-        if existing_user.get("is_email_verified", False):
+        email_verified: bool = existing_user.get("is_email_verified")
+        if email_verified:
             raise DuplicateValueException("Email is already registered")
 
+        time_now = datetime.now(UTC)
         created_at: datetime | None = existing_user.get("created_at")
-        if created_at is None:
-            raise DuplicateValueException("Email is not yet verified, please check your email")
-
-        if created_at.tzinfo is None:
-            created_at = created_at.replace(tzinfo=UTC)
-
         expires_after = timedelta(days=settings.EMAIL_VERIFICATION_EXPIRE_DAYS)
-        if (datetime.now(UTC) - created_at) < expires_after:
+        if (time_now - created_at) < expires_after:
             raise DuplicateValueException("Email is not yet verified, please check your email")
 
         await crud_users.db_delete(db=db, id=existing_user["id"])

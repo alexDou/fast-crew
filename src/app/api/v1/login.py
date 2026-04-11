@@ -10,7 +10,6 @@ from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import UnauthorizedException
 from ...core.schemas import Token
 from ...core.security import (
-    ACCESS_TOKEN_EXPIRE_MINUTES,
     TokenType,
     authenticate_user,
     create_access_token,
@@ -34,14 +33,19 @@ async def login_for_access_token(
     if not user.get("is_email_verified", False):
         raise UnauthorizedException("Email is not yet verified, please check your email")
 
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = await create_access_token(data={"sub": user["username"]}, expires_delta=access_token_expires)
 
     refresh_token = await create_refresh_token(data={"sub": user["username"]})
     max_age = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60
 
     response.set_cookie(
-        key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="lax", max_age=max_age
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=settings.SESSION_SECURE_COOKIES,
+        samesite="lax",
+        max_age=max_age,
     )
 
     return {"access_token": access_token, "token_type": "bearer"}

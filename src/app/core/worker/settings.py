@@ -10,13 +10,10 @@ from ...core.config import settings
 from ...core.logger import logging  # noqa: F401
 from .functions import on_job_end, on_job_start, sample_background_task, shutdown, startup
 
-REDIS_QUEUE_HOST = settings.REDIS_QUEUE_HOST
-REDIS_QUEUE_PORT = settings.REDIS_QUEUE_PORT
-
 
 class WorkerSettings:
     functions = [sample_background_task]
-    redis_settings = RedisSettings(host=REDIS_QUEUE_HOST, port=REDIS_QUEUE_PORT)
+    redis_settings = RedisSettings(host=settings.REDIS_QUEUE_HOST, port=settings.REDIS_QUEUE_PORT)
     on_startup = startup
     on_shutdown = shutdown
     on_job_start = on_job_start

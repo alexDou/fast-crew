@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from src.app.api.v1.login import login_for_access_token
+from src.app.core.config import settings
 from src.app.core.exceptions.http_exceptions import UnauthorizedException
 
 
@@ -63,6 +64,7 @@ class TestLoginEmailVerification:
                     assert result["access_token"] == "access_token_value"
                     assert result["token_type"] == "bearer"
                     mock_response.set_cookie.assert_called_once()
+                    assert mock_response.set_cookie.call_args.kwargs["secure"] == settings.SESSION_SECURE_COOKIES
 
     @pytest.mark.asyncio
     async def test_login_wrong_credentials(self, mock_db):
