@@ -79,7 +79,7 @@ class TestPoemSourceRequestLimit:
                 mock_storage.attach_media_url.return_value = response_poem_source
 
                 with patch("src.app.api.v1.poem_source.crewai_service") as mock_crew:
-                    mock_crew.start_poem_generation = Mock()
+                    mock_crew.start_stage_1_analysis = Mock()
 
                     result = await write_poem_source(mock_request, mock_file, None, current_user_dict, mock_db)
 
@@ -118,7 +118,7 @@ class TestPoemSourceRequestLimit:
                 mock_storage.attach_media_url.return_value = response_poem_source
 
                 with patch("src.app.api.v1.poem_source.crewai_service") as mock_crew:
-                    mock_crew.start_poem_generation = Mock()
+                    mock_crew.start_stage_1_analysis = Mock()
 
                     app = FastAPI()
                     app.include_router(router)
@@ -136,7 +136,7 @@ class TestPoemSourceRequestLimit:
                     result = response.json()
 
                     create_object = mock_crud.create.await_args.kwargs["object"]
-                    crew_call_kwargs = mock_crew.start_poem_generation.call_args.kwargs
+                    crew_call_kwargs = mock_crew.start_stage_1_analysis.call_args.kwargs
 
                     assert create_object.media_path == "s3://bucket/test.jpg"
                     assert create_object.enhance == normalized_enhance
@@ -144,7 +144,6 @@ class TestPoemSourceRequestLimit:
                     assert crew_call_kwargs["media_path"] == "s3://bucket/test.jpg"
                     assert crew_call_kwargs["user_id"] == current_user_dict["id"]
                     assert crew_call_kwargs["enhance"] == normalized_enhance
-                    assert callable(crew_call_kwargs["db_session_maker"])
                     assert result["media_path"] == "https://signed-url"
                     assert result["enhance"] == normalized_enhance
 
@@ -181,7 +180,7 @@ class TestPoemSourceRequestLimit:
                 mock_storage.attach_media_url.return_value = response_poem_source
 
                 with patch("src.app.api.v1.poem_source.crewai_service") as mock_crew:
-                    mock_crew.start_poem_generation = Mock()
+                    mock_crew.start_stage_1_analysis = Mock()
 
                     result = await write_poem_source(mock_request, mock_file, None, current_user_dict, mock_db)
 

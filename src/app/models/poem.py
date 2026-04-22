@@ -13,6 +13,8 @@ class Poem(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
     poem_source_id: Mapped[int] = mapped_column(ForeignKey("poem_source.id"), index=True)
     poem: Mapped[str | None] = mapped_column(String, default=None)
+    variant_key: Mapped[str | None] = mapped_column(String(50), default=None)
+    author_label: Mapped[str | None] = mapped_column(String(100), default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default_factory=lambda: datetime.now(UTC))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)

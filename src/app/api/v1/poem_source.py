@@ -6,11 +6,21 @@ from fastcrud import PaginatedListResponse, compute_offset, paginated_response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.dependencies import get_current_superuser, get_current_user
-from ...core.db.database import async_get_db, local_session
+from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import ForbiddenException, NotFoundException
 from ...core.utils.cache import cache
 from ...crud.crud_poem_sources import crud_poem_sources
-from ...schemas.poem_source import PoemSourceCreateInternal, PoemSourceRead, PoemSourceUpdate
+from ...schemas.poem_source import (
+    PoemSourceAnswerSubmission,
+    PoemSourceAnswerSubmissionAccepted,
+    PoemSourceCreateInternal,
+    PoemSourcePatch,
+    PoemSourceRead,
+    PoemSourceStatus,
+    PoemSourceStatusResponse,
+    PoemSourceUpdate,
+    PoemSourceWorkflowRead,
+)
 from ...services.crewai_service import crewai_service
 from ...services.storage_service import StorageError, storage_service
 
@@ -49,7 +59,7 @@ async def write_poem_source(
     existing_sources = await crud_poem_sources.get_multi(
         db=db,
         user_id=current_user["id"],
-        status="success",
+        status=PoemSourceStatus.COMPLETE.value,
         is_deleted=False,
     )
     total_count = existing_sources["total_count"]
@@ -85,7 +95,7 @@ async def write_poem_source(
         "media_path": media_path,
         "user_id": current_user["id"],
         "enhance": normalized_enhance,
-        "status": "processing",
+        "status": PoemSourceStatus.PROCESSING.value,
     }
 
     poem_source_internal = PoemSourceCreateInternal(**poem_source_internal_dict)
@@ -98,13 +108,12 @@ async def write_poem_source(
     if created_poem_source is None:
         raise NotFoundException("Failed to create poem source")
 
-    # Start CrewAI poem generation in the background
-    crewai_service.start_poem_generation(
+    # Start stage 1 analysis in the background.
+    crewai_service.start_stage_1_analysis(
         poem_source_id=created_poem_source["id"],
         media_path=media_path,
         user_id=current_user["id"],
         enhance=normalized_enhance,
-        db_session_maker=local_session,
     )
 
     return storage_service.attach_media_url(created_poem_source)
@@ -131,7 +140,7 @@ async def read_poem_sources(
     return response
 
 
-@router.get("/poem-source/{id}/ready")
+@router.get("/poem-source/{id}/ready", response_model=PoemSourceStatusResponse)
 async def check_poem_source_ready(
     request: Request,
     id: int,
@@ -151,33 +160,89 @@ async def check_poem_source_ready(
         - status: str (processing, success, or error)
         - poem_source_id: int
     """
-    failure_reason = crewai_service.get_failure_reason(id, current_user["id"])
-    if failure_reason == crewai_service.INDISTINCT_CONTENT_MESSAGE:
-        return {
-            "ready": True,
-            "status": "error",
-            "poem_source_id": id,
-            "message": failure_reason,
-        }
+    db_poem_source = await crud_poem_sources.get(
+        db=db,
+        id=id,
+        user_id=current_user["id"],
+        is_deleted=False,
+        schema_to_select=PoemSourceWorkflowRead,
+    )
+
+    if db_poem_source is None:
+        raise NotFoundException("Poem source not found")
+
+    status = db_poem_source.get("status", PoemSourceStatus.PROCESSING.value)
+    is_ready = status in {
+        PoemSourceStatus.STAGE_1.value,
+        PoemSourceStatus.COMPLETE.value,
+        PoemSourceStatus.ERROR.value,
+    }
+
+    return {
+        "ready": is_ready,
+        "status": status,
+        "poem_source_id": id,
+        "message": db_poem_source.get("error_message") if status == PoemSourceStatus.ERROR.value else None,
+        "questions": db_poem_source.get("follow_up_questions") or []
+        if status == PoemSourceStatus.STAGE_1.value
+        else [],
+    }
+
+
+@router.post("/poem-source/{id}/answers", response_model=PoemSourceAnswerSubmissionAccepted)
+async def submit_poem_source_answers(
+    request: Request,
+    id: int,
+    payload: PoemSourceAnswerSubmission,
+    current_user: Annotated[dict[str, Any] | None, Depends(get_current_user)] = None,
+    db: Annotated[AsyncSession | None, Depends(async_get_db)] = None,
+) -> dict[str, Any]:
+    if not current_user:
+        raise ForbiddenException()
+    if db is None:
+        raise RuntimeError("Database session not available")
 
     db_poem_source = await crud_poem_sources.get(
         db=db,
         id=id,
         user_id=current_user["id"],
         is_deleted=False,
-        schema_to_select=PoemSourceRead
+        schema_to_select=PoemSourceWorkflowRead,
     )
 
     if db_poem_source is None:
         raise NotFoundException("Poem source not found")
 
-    status = db_poem_source.get("status", "processing")
-    is_ready = status in ["success", "error"]
+    if db_poem_source.get("status") != PoemSourceStatus.STAGE_1.value:
+        raise HTTPException(status_code=409, detail="Poem source is not waiting for answers")
+
+    questions = db_poem_source.get("follow_up_questions") or []
+    expected_question_ids = {question["id"] for question in questions}
+    submitted_question_ids = set(payload.answers.keys())
+
+    if not expected_question_ids:
+        raise HTTPException(status_code=409, detail="Poem source has no follow-up questions")
+
+    if submitted_question_ids != expected_question_ids:
+        raise HTTPException(status_code=422, detail="Answers must be provided for every follow-up question")
+
+    await crud_poem_sources.update(
+        db=db,
+        object=PoemSourceUpdate(
+            status=PoemSourceStatus.GENERATING.value,
+            follow_up_answers=payload.answers,
+            error_message=None,
+        ),
+        id=id,
+    )
+    await db.commit()
+
+    crewai_service.start_stage_2_generation(poem_source_id=id)
 
     return {
-        "ready": is_ready,
-        "status": status,
-        "poem_source_id": id
+        "message": "Answers accepted",
+        "status": PoemSourceStatus.GENERATING.value,
+        "poem_source_id": id,
     }
 
 
@@ -204,7 +269,7 @@ async def read_poem_source(
 async def patch_poem_source(
     request: Request,
     id: int,
-    values: PoemSourceUpdate,
+    values: PoemSourcePatch,
     db: Annotated[AsyncSession, Depends(async_get_db)],
     current_user: Annotated[dict, Depends(get_current_user)],
 ) -> dict[str, str]:
@@ -216,7 +281,11 @@ async def patch_poem_source(
     if db_poem_source is None:
         raise NotFoundException("Poem source not found")
 
-    await crud_poem_sources.update(db=db, object=values, id=id)
+    await crud_poem_sources.update(
+        db=db,
+        object=PoemSourceUpdate(**values.model_dump(exclude_none=True)),
+        id=id,
+    )
     return {"message": "Poem source updated"}
 
 

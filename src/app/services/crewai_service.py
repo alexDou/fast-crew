@@ -1,12 +1,14 @@
 """Service for running CrewAI poetry generation in the background."""
+
 import asyncio
+import json
 import logging
 import os
 import traceback
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
 from typing import Any
 
+from openai import OpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .storage_service import StorageError, storage_service
@@ -18,56 +20,43 @@ class CrewAIService:
     """Service to run CrewAI poetry generation tasks."""
 
     INDISTINCT_CONTENT_MESSAGE = "indistinct content"
-    MAX_STORED_FAILURE_REASONS = 1000
+    QUESTION_MODEL = "openrouter/deepseek/deepseek-v3.2"
+    VARIANT_LABELS = {
+        "poet_modern": "Modern Poet",
+        "poet_classic": "Classic Poet",
+        "poet_mystic": "Mystic Poet",
+    }
 
     def __init__(self):
         # Thread pool for running synchronous CrewAI code
         self.executor = ThreadPoolExecutor(max_workers=3)
-        self._failure_reasons: dict[int, tuple[int, str]] = {}
-        self._failure_reasons_lock = Lock()
 
-    def get_failure_reason(self, poem_source_id: int, user_id: int) -> str | None:
-        with self._failure_reasons_lock:
-            stored = self._failure_reasons.get(poem_source_id)
-            if not stored:
-                return None
-
-            stored_user_id, reason = stored
-            if stored_user_id != user_id:
-                return None
-
-            return reason
-
-    def _set_failure_reason(self, poem_source_id: int, user_id: int, reason: str) -> None:
-        with self._failure_reasons_lock:
-            if len(self._failure_reasons) >= self.MAX_STORED_FAILURE_REASONS:
-                first_key = next(iter(self._failure_reasons))
-                self._failure_reasons.pop(first_key, None)
-
-            self._failure_reasons[poem_source_id] = (user_id, reason)
-
-    @classmethod
-    def _extract_failure_reason(cls, exc: Exception) -> str | None:
-        normalized = str(exc).strip().lower()
-        if normalized == cls.INDISTINCT_CONTENT_MESSAGE:
-            return cls.INDISTINCT_CONTENT_MESSAGE
-        return None
-
-    async def _update_poem_source_status(
+    async def _update_poem_source(
         self,
         db: AsyncSession,
         poem_source_id: int,
-        status: str
-    ):
+        *,
+        commit: bool = True,
+        **values: Any,
+    ) -> None:
         from ..crud.crud_poem_sources import crud_poem_sources
         from ..schemas.poem_source import PoemSourceUpdate
 
         await crud_poem_sources.update(
             db=db,
-            object=PoemSourceUpdate(status=status),
-            id=poem_source_id
+            object=PoemSourceUpdate(**values),
+            id=poem_source_id,
         )
-        await db.commit()
+        if commit:
+            await db.commit()
+
+    async def _update_poem_source_status(
+        self,
+        db: AsyncSession,
+        poem_source_id: int,
+        status: str,
+    ) -> None:
+        await self._update_poem_source(db, poem_source_id, status=status)
 
     async def _save_poems(
         self,
@@ -75,13 +64,15 @@ class CrewAIService:
         user_id: int,
         poem_source_id: int,
         poems: dict[str, str],
-    ):
+        *,
+        commit: bool = True,
+    ) -> None:
         from datetime import UTC, datetime
 
         from ..crud.crud_poems import crud_poems
         from ..schemas.poem import PoemCreateInternal
 
-        for poem_text in poems.values():
+        for variant_key, poem_text in poems.items():
             if poem_text and poem_text.strip():  # Only save non-empty poems
                 # Generate datetime directly to avoid serialization issues
                 now = datetime.now(UTC).replace(tzinfo=None)
@@ -90,27 +81,33 @@ class CrewAIService:
                     user_id=user_id,
                     poem_source_id=poem_source_id,
                     poem=poem_text,
+                    variant_key=variant_key,
+                    author_label=self.VARIANT_LABELS.get(variant_key),
                     created_at=now,
-                    updated_at=None
+                    updated_at=None,
                 )
 
                 await crud_poems.create(db=db, object=poem_data)
 
-        await db.commit()
+        if commit:
+            await db.commit()
 
     def _persist_output_artifacts(
         self,
         poem_source_id: int,
-        image_analysis: str,
-        poems: dict[str, str | None],
+        image_analysis: str | None = None,
+        poems: dict[str, str | None] | None = None,
     ) -> None:
         """Persist generated markdown artifacts via the configured storage backend."""
-        artifacts = {
-            "image_analysis.md": image_analysis,
-            "poet_modern.md": poems.get("poet_modern") or "",
-            "poet_classic.md": poems.get("poet_classic") or "",
-            "poet_mystic.md": poems.get("poet_mystic") or "",
-        }
+        artifacts: dict[str, str] = {}
+        if image_analysis:
+            artifacts["image_analysis.md"] = image_analysis
+        if poems:
+            artifacts.update({
+                "poet_modern.md": poems.get("poet_modern") or "",
+                "poet_classic.md": poems.get("poet_classic") or "",
+                "poet_mystic.md": poems.get("poet_mystic") or "",
+            })
 
         for filename, content in artifacts.items():
             if not content.strip():
@@ -160,255 +157,388 @@ class CrewAIService:
         os.environ["OPENROUTER_API_KEY"] = api_key
         return api_key
 
-    def _run_crew_sync(
-        self,
-        poem_source_id: int,
-        media_path: str,
-        user_id: int,
-        enhance: str | None,
-        db_session_maker
-    ) -> dict[str, Any]:
-        local_image_path = ""
-        should_cleanup_local_image = False
+    @staticmethod
+    def _extract_text_content(content: Any) -> str:
+        if isinstance(content, list):
+            return "".join(str(part) for part in content).strip()
+        return str(content or "").strip()
 
-        try:
-            local_image_path, should_cleanup_local_image = storage_service.prepare_local_media_file(media_path)
-            logger.info(
-                f"Starting CrewAI poem generation for source_id={poem_source_id}, "
-                f"media={media_path}, local_image={local_image_path}"
-            )
+    @staticmethod
+    def _normalize_error_message(exc: Exception) -> str:
+        message = str(exc).strip()
+        if not message:
+            return "Poem generation failed"
+        return message.splitlines()[0][:1000]
 
-            from pathlib import Path
+    @staticmethod
+    def _resolve_crewai_root() -> tuple[str, str]:
+        from pathlib import Path
 
-            # CrewAI expects working directory to be the crew root for knowledge sources
-            # Detect if running in Docker or locally
-            if os.path.exists("/code/crewai_project"):
-                base_path = Path("/code")
+        if os.path.exists("/code/crewai_project"):
+            base_path = Path("/code")
+        else:
+            current = Path(__file__).resolve()
+            while current.parent != current:
+                if (current / "pyproject.toml").exists():
+                    base_path = current
+                    break
+                current = current.parent
             else:
-                # Find project root by looking for pyproject.toml
-                current = Path(__file__).resolve()
-                while current.parent != current:
-                    if (current / "pyproject.toml").exists():
-                        base_path = current
-                        break
-                    current = current.parent
-                else:
-                    # Fallback to 3 levels up from this file
-                    base_path = Path(__file__).resolve().parent.parent.parent
+                base_path = Path(__file__).resolve().parent.parent.parent
 
-            crew_root = base_path / "crewai_project" / "crews" / "poets_crew"
-            logger.info(f"Base path: {base_path}, Crew root: {crew_root}, Exists: {crew_root.exists()}")
-            original_cwd = os.getcwd()
-            # Change to crew root for knowledge files
-            os.chdir(str(crew_root))
-            logger.info(f"Changed directory to {crew_root}")
+        crew_root = base_path / "crewai_project" / "crews" / "poets_crew"
+        return str(base_path), str(crew_root)
 
-            # Add the package source directory to sys.path so poets_crew
-            # is importable as a proper package (enables relative imports)
-            import sys
-            pkg_src = str(crew_root / "src")
+    def _load_poets_crew_modules(self):
+        import sys
+
+        _, crew_root = self._resolve_crewai_root()
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(crew_root)
+            pkg_src = os.path.join(crew_root, "src")
             if pkg_src not in sys.path:
                 sys.path.insert(0, pkg_src)
 
             openrouter_api_key = self._resolve_openrouter_api_key()
 
-            # Force re-import to pick up any changes
             for mod_name in list(sys.modules):
                 if mod_name.startswith("poets_crew"):
                     del sys.modules[mod_name]
 
             from poets_crew.crew import PoetsCrew
             from poets_crew.tools.image_analyzer_tool import ImageAnalyzerTool
-            logger.info(f"Loaded PoetsCrew from package at {pkg_src}")
 
-            # Restore original working directory
+            return PoetsCrew, ImageAnalyzerTool, openrouter_api_key
+        finally:
             os.chdir(original_cwd)
 
-            # Call ImageAnalyzerTool directly — the agent was not reliably calling it
+    @staticmethod
+    def _normalize_questions(raw_questions: list[dict[str, Any]]) -> list[dict[str, str]]:
+        normalized_questions: list[dict[str, str]] = []
+        for index, raw_question in enumerate(raw_questions[:3], start=1):
+            question_text = str(raw_question.get("text") or "").strip()
+            if not question_text:
+                continue
+
+            question: dict[str, str] = {
+                "id": f"q{index}",
+                "text": question_text,
+            }
+            kind = str(raw_question.get("kind") or "").strip()
+            if kind:
+                question["kind"] = kind
+            normalized_questions.append(question)
+
+        if not normalized_questions:
+            raise RuntimeError("Question generation did not return any valid follow-up questions")
+
+        return normalized_questions
+
+    def _generate_follow_up_questions(
+        self,
+        image_analysis: str,
+        enhance: str | None,
+        openrouter_api_key: str,
+    ) -> list[dict[str, str]]:
+        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=openrouter_api_key)
+        prompt = (
+            "You are preparing a staged poetry workflow. Based on the image analysis and the user's optional note, "
+            "write 1 to 3 short follow-up questions that will help poets personalize the final poems. "
+            "Return JSON only in the shape {\"questions\": [{\"text\": string, \"kind\": string | null}]}. "
+            "The questions must be specific, concrete, and easy to answer in one or two sentences."
+        )
+        user_context = enhance.strip() if enhance else ""
+        completion = client.chat.completions.create(
+            extra_headers={
+                "HTTP-Referer": "PoetsCrew",
+                "X-Title": "PoetsCrew",
+            },
+            model=self.QUESTION_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": prompt,
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Image analysis:\n{image_analysis}\n\n"
+                        f"Original user note:\n{user_context or 'None provided.'}"
+                    ),
+                },
+            ],
+        )
+
+        response_content = self._extract_text_content(completion.choices[0].message.content)
+        if response_content.startswith("```"):
+            response_content = response_content.strip("`")
+            if response_content.startswith("json"):
+                response_content = response_content[4:].strip()
+
+        parsed = json.loads(response_content)
+        questions = parsed.get("questions")
+        if not isinstance(questions, list):
+            raise RuntimeError("Question generation returned an invalid payload")
+
+        return self._normalize_questions(questions)
+
+    @staticmethod
+    def _build_generation_context(
+        enhance: str | None,
+        questions: list[dict[str, str]] | None,
+        answers: dict[str, str] | None,
+    ) -> str:
+        parts: list[str] = []
+        if enhance:
+            parts.append(f"Original user context:\n{enhance}")
+
+        if questions and answers:
+            question_text_by_id = {question["id"]: question["text"] for question in questions if question.get("id")}
+            answer_lines = []
+            for question_id, answer in answers.items():
+                question_text = question_text_by_id.get(question_id, question_id)
+                answer_lines.append(f"- {question_text}: {answer}")
+
+            if answer_lines:
+                parts.append("Follow-up answers from the user:\n" + "\n".join(answer_lines))
+
+        if not parts:
+            return ""
+
+        return "\n\n".join(parts)
+
+    @staticmethod
+    def _extract_poems_from_result(result: Any) -> dict[str, str | None]:
+        return {
+            "poet_modern": result.tasks_output[0].raw if len(result.tasks_output) > 0 else None,
+            "poet_classic": result.tasks_output[1].raw if len(result.tasks_output) > 1 else None,
+            "poet_mystic": result.tasks_output[2].raw if len(result.tasks_output) > 2 else None,
+        }
+
+    @staticmethod
+    def _run_async(awaitable: Any) -> Any:
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(awaitable)
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+
+    async def _with_thread_db(self, callback):
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        from ..core.config import settings
+
+        engine = create_async_engine(
+            settings.POSTGRES_ASYNC_DATABASE_URL,
+            echo=False,
+            future=True,
+        )
+        async_session = async_sessionmaker(
+            engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+        )
+
+        try:
+            async with async_session() as db:
+                return await callback(db)
+        finally:
+            await engine.dispose()
+
+    def _run_stage_1_sync(
+        self,
+        poem_source_id: int,
+        media_path: str,
+        user_id: int,
+        enhance: str | None,
+    ) -> dict[str, Any]:
+        local_image_path = ""
+        should_cleanup_local_image = False
+
+        try:
+            _, ImageAnalyzerTool, openrouter_api_key = self._load_poets_crew_modules()
+            local_image_path, should_cleanup_local_image = storage_service.prepare_local_media_file(media_path)
+
             tool = ImageAnalyzerTool(
                 api_key=openrouter_api_key,
                 model="qwen/qwen3-vl-235b-a22b-instruct",
             )
-            logger.info(f"Calling ImageAnalyzerTool directly for: {local_image_path}")
-            image_analysis = tool._run(image_path=local_image_path)
-            logger.info(f"ImageAnalyzerTool result (first 200 chars): {image_analysis[:200]}")
+            image_analysis = tool._run(image_path=local_image_path).strip()
+            logger.info("Stage 1 image analysis completed for source_id=%s", poem_source_id)
 
-            if image_analysis.strip().lower() == self.INDISTINCT_CONTENT_MESSAGE:
+            normalized_analysis = image_analysis.lower()
+            if normalized_analysis == self.INDISTINCT_CONTENT_MESSAGE:
                 raise RuntimeError(self.INDISTINCT_CONTENT_MESSAGE)
+            if normalized_analysis.startswith("error analyzing image:"):
+                raise RuntimeError(image_analysis)
 
+            questions = self._generate_follow_up_questions(image_analysis, enhance, openrouter_api_key)
+            self._persist_output_artifacts(poem_source_id=poem_source_id, image_analysis=image_analysis)
+
+            async def persist_stage_1(db: AsyncSession) -> None:
+                await self._update_poem_source(
+                    db,
+                    poem_source_id,
+                    status="stage_1",
+                    image_analysis=image_analysis,
+                    follow_up_questions=questions,
+                    error_message=None,
+                )
+
+            self._run_async(self._with_thread_db(persist_stage_1))
+            return {
+                "image_analysis": image_analysis,
+                "questions": questions,
+            }
+        except Exception as exc:
+            logger.error("Stage 1 failed for source_id=%s: %s", poem_source_id, exc)
+            logger.error("Full traceback:\n%s", traceback.format_exc())
+            error_message = self._normalize_error_message(exc)
+
+            async def persist_error(db: AsyncSession) -> None:
+                await self._update_poem_source(
+                    db,
+                    poem_source_id,
+                    status="error",
+                    error_message=error_message,
+                )
+
+            self._run_async(self._with_thread_db(persist_error))
+            return {"image_analysis": "", "questions": []}
+        finally:
+            if should_cleanup_local_image and local_image_path and os.path.exists(local_image_path):
+                try:
+                    os.remove(local_image_path)
+                except OSError as cleanup_error:
+                    logger.warning(
+                        "Failed to clean up temporary local image %s: %s",
+                        local_image_path,
+                        cleanup_error,
+                    )
+
+    def _run_stage_2_sync(self, poem_source_id: int) -> dict[str, Any]:
+        local_image_path = ""
+        should_cleanup_local_image = False
+
+        try:
+            PoetsCrew, _, _ = self._load_poets_crew_modules()
+
+            async def load_source(db: AsyncSession) -> dict[str, Any] | None:
+                from ..crud.crud_poem_sources import crud_poem_sources
+                from ..schemas.poem_source import PoemSourceWorkflowRead
+
+                return await crud_poem_sources.get(
+                    db=db,
+                    id=poem_source_id,
+                    is_deleted=False,
+                    schema_to_select=PoemSourceWorkflowRead,
+                )
+
+            poem_source = self._run_async(self._with_thread_db(load_source))
+            if poem_source is None:
+                raise RuntimeError("Poem source not found")
+
+            media_path = poem_source.get("media_path")
+            user_id = poem_source.get("user_id")
+            image_analysis = poem_source.get("image_analysis")
+            questions = poem_source.get("follow_up_questions") or []
+            answers = poem_source.get("follow_up_answers") or {}
+
+            if not media_path or not user_id or not image_analysis:
+                raise RuntimeError("Poem source is missing staged workflow data")
+            if not answers:
+                raise RuntimeError("Poem source is missing follow-up answers")
+
+            local_image_path, should_cleanup_local_image = storage_service.prepare_local_media_file(media_path)
+            prompt_context = self._build_generation_context(
+                poem_source.get("enhance"),
+                questions,
+                answers,
+            )
             inputs = {
                 "image_path": local_image_path,
                 "image_analysis": image_analysis,
+                "enhance": f"\n\n{prompt_context}" if prompt_context else "",
             }
-            if enhance:
-                inputs["enhance"] = f"\n\nAdditional context from the user: {enhance}"
-            else:
-                inputs["enhance"] = ""
-
-            logger.info(f"Kicking off PoetsCrew with inputs keys: {list(inputs.keys())}")
-
             result = self._kickoff_with_fallback(PoetsCrew, inputs)
-            logger.info("PoetsCrew completed successfully")
-
-            # Tasks: 0=poet_modern, 1=poet_classic, 2=poet_mystic
-            poet_modern = result.tasks_output[0].raw if len(result.tasks_output) > 0 else None
-            poet_classic = result.tasks_output[1].raw if len(result.tasks_output) > 1 else None
-            poet_mystic = result.tasks_output[2].raw if len(result.tasks_output) > 2 else None
-
-            poems = {
-                "poet_modern": poet_modern,
-                "poet_classic": poet_classic,
-                "poet_mystic": poet_mystic,
-            }
-
+            poems = self._extract_poems_from_result(result)
             self._persist_output_artifacts(
                 poem_source_id=poem_source_id,
                 image_analysis=image_analysis,
                 poems=poems,
             )
 
-            # Save poems using new async engine in this thread's event loop
-            from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+            async def persist_stage_2(db: AsyncSession) -> None:
+                try:
+                    await self._save_poems(
+                        db=db,
+                        user_id=user_id,
+                        poem_source_id=poem_source_id,
+                        poems={key: value or "" for key, value in poems.items()},
+                        commit=False,
+                    )
+                    await self._update_poem_source(
+                        db,
+                        poem_source_id,
+                        status="complete",
+                        error_message=None,
+                        commit=False,
+                    )
+                    await db.commit()
+                except Exception:
+                    await db.rollback()
+                    raise
 
-            from ..core.config import settings
-
-            async def save_results():
-                # Create a new engine and session factory for this thread
-                database_url = settings.POSTGRES_ASYNC_DATABASE_URL
-                engine = create_async_engine(
-                    database_url,
-                    echo=False,
-                    future=True,
-                )
-                async_session = async_sessionmaker(
-                    engine, class_=AsyncSession, expire_on_commit=False
-                )
-
-                async with async_session() as db:
-                    try:
-                        await self._save_poems(
-                            db=db,
-                            user_id=user_id,
-                            poem_source_id=poem_source_id,
-                            poems=poems,
-                        )
-
-                        await self._update_poem_source_status(
-                            db=db,
-                            poem_source_id=poem_source_id,
-                            status="success"
-                        )
-                    except Exception as e:
-                        logger.error(f"Error saving poems for source_id={poem_source_id}: {e}")
-                        logger.error(traceback.format_exc())
-                        await self._update_poem_source_status(
-                            db=db,
-                            poem_source_id=poem_source_id,
-                            status="error"
-                        )
-                    finally:
-                        await engine.dispose()
-
-            # Use new event loop in thread pool
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(save_results())
-            finally:
-                loop.close()
-
+            self._run_async(self._with_thread_db(persist_stage_2))
             return {
                 "image_analysis": image_analysis,
                 "poems": poems,
-                "poet_mystic": poet_mystic
             }
+        except Exception as exc:
+            logger.error("Stage 2 failed for source_id=%s: %s", poem_source_id, exc)
+            logger.error("Full traceback:\n%s", traceback.format_exc())
+            error_message = self._normalize_error_message(exc)
 
-        except Exception as e:
-            failure_reason = self._extract_failure_reason(e)
-            if failure_reason:
-                self._set_failure_reason(poem_source_id, user_id, failure_reason)
-
-            logger.error(f"CRITICAL ERROR in CrewAI service for source_id={poem_source_id}: {e}")
-            logger.error(f"Full traceback:\n{traceback.format_exc()}")
-
-            # Clean up everything: poems, poem_source record, and uploaded file
-            from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-            from ..core.config import settings
-
-            async def cleanup_on_error():
-                database_url = settings.POSTGRES_ASYNC_DATABASE_URL
-                engine = create_async_engine(
-                    database_url,
-                    echo=False,
-                    future=True,
-                )
-                async_session = async_sessionmaker(
-                    engine, class_=AsyncSession, expire_on_commit=False
+            async def persist_error(db: AsyncSession) -> None:
+                await self._update_poem_source(
+                    db,
+                    poem_source_id,
+                    status="error",
+                    error_message=error_message,
                 )
 
-                async with async_session() as db:
-                    try:
-                        # Delete any partially saved poems for this source
-                        from ..crud.crud_poems import crud_poems
-                        await crud_poems.db_delete(
-                            db=db,
-                            poem_source_id=poem_source_id,
-                        )
-
-                        # Hard-delete the poem_source record
-                        from ..crud.crud_poem_sources import crud_poem_sources
-                        await crud_poem_sources.db_delete(
-                            db=db,
-                            id=poem_source_id,
-                        )
-
-                        await db.commit()
-                        logger.info(f"Cleaned up DB records for source_id={poem_source_id}")
-                    except Exception as cleanup_err:
-                        logger.error(f"DB cleanup failed for source_id={poem_source_id}: {cleanup_err}")
-                        await db.rollback()
-                    finally:
-                        await engine.dispose()
-
-            # Use new event loop in thread pool
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(cleanup_on_error())
-            finally:
-                loop.close()
-
-            try:
-                storage_service.delete_media(media_path)
-                logger.info(f"Removed uploaded media: {media_path}")
-            except StorageError as file_err:
-                logger.error(f"Failed to remove uploaded media {media_path}: {file_err}")
-
-            logger.error(f"Poem generation failed for source_id={poem_source_id}, cleanup complete")
-            return {"image_analysis": "", "poems": {}, "poet_mystic": None}
+            self._run_async(self._with_thread_db(persist_error))
+            return {"image_analysis": "", "poems": {}}
         finally:
             if should_cleanup_local_image and local_image_path and os.path.exists(local_image_path):
                 try:
                     os.remove(local_image_path)
-                except OSError as exc:
-                    logger.warning(f"Failed to clean up temporary local image {local_image_path}: {exc}")
+                except OSError as cleanup_error:
+                    logger.warning(
+                        "Failed to clean up temporary local image %s: %s",
+                        local_image_path,
+                        cleanup_error,
+                    )
 
-    def start_poem_generation(
+    def start_stage_1_analysis(
         self,
         poem_source_id: int,
         media_path: str,
         user_id: int,
         enhance: str | None,
-        db_session_maker
     ) -> None:
         self.executor.submit(
-            self._run_crew_sync,
+            self._run_stage_1_sync,
             poem_source_id,
             media_path,
             user_id,
             enhance,
-            db_session_maker
         )
+
+    def start_stage_2_generation(self, poem_source_id: int) -> None:
+        self.executor.submit(self._run_stage_2_sync, poem_source_id)
 
 crewai_service = CrewAIService()
