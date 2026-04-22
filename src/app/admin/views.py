@@ -2,7 +2,11 @@ from crudadmin import CRUDAdmin
 from crudadmin.admin_interface.model_view import PasswordTransformer
 
 from ..core.security import get_password_hash
+from ..models.poem import Poem
+from ..models.poem_source import PoemSource
 from ..models.user import User
+from ..schemas.poem import PoemCreate, PoemUpdate
+from ..schemas.poem_source import PoemSourceCreate, PoemSourceUpdate
 from ..schemas.user import UserCreate, UserCreateInternal, UserUpdate
 
 
@@ -27,4 +31,24 @@ def register_admin_views(admin: CRUDAdmin) -> None:
         update_internal_schema=UserCreateInternal,
         password_transformer=password_transformer,
         allowed_actions={"view", "create", "update"},
+    )
+
+    # Staged workflow debugging: admins need to inspect image_analysis,
+    # follow_up_questions / follow_up_answers and error_message without being
+    # able to mutate them from the UI (workflow transitions are strictly
+    # owned by the CrewAI service).
+    admin.add_view(
+        model=PoemSource,
+        create_schema=PoemSourceCreate,
+        update_schema=PoemSourceUpdate,
+        allowed_actions={"view"},
+    )
+
+    # Poem variants (with variant_key / author_label) are useful for support
+    # to confirm what the crew actually produced per source.
+    admin.add_view(
+        model=Poem,
+        create_schema=PoemCreate,
+        update_schema=PoemUpdate,
+        allowed_actions={"view"},
     )

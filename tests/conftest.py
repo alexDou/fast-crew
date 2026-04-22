@@ -66,6 +66,21 @@ def sample_user_data():
     }
 
 
+_SAFE_NAME_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -")
+
+
+def _faker_safe_name() -> str:
+    """Strip out characters that would violate the UserRead name regex.
+
+    ``fake.name()`` sometimes produces titles like ``Mr. Brian Anderson`` or
+    suffixes like ``Nicholas Arellano III`` that contain punctuation which
+    the ``^[a-zA-Z0-9 \\-]+$`` constraint rejects. We preserve determinism by
+    keeping faker's output but filter it through the allowed character set.
+    """
+    candidate = "".join(ch for ch in fake.name() if ch in _SAFE_NAME_CHARS).strip()
+    return candidate or "User Userson"
+
+
 @pytest.fixture
 def sample_user_read():
     """Generate a sample UserRead object."""
@@ -73,7 +88,7 @@ def sample_user_read():
 
     return UserRead(
         id=1,
-        name=fake.name(),
+        name=_faker_safe_name(),
         username=fake.user_name(),
         email=fake.email(),
     )

@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from src.app.api.v1.poem_source import check_poem_source_ready, submit_poem_source_answers
+from src.app.core.exceptions.http_exceptions import NotFoundException
 from src.app.schemas.poem_source import PoemSourceAnswerSubmission, PoemSourceStatus
 
 
@@ -92,3 +93,104 @@ async def test_submit_poem_source_answers_requires_every_question(mock_db, curre
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail == "Answers must be provided for every follow-up question"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("stored_status", "expected_ready", "expected_questions", "expected_message"),
+    [
+        (PoemSourceStatus.PROCESSING.value, False, [], None),
+        (PoemSourceStatus.GENERATING.value, False, [], None),
+        (PoemSourceStatus.COMPLETE.value, True, [], None),
+        (PoemSourceStatus.ERROR.value, True, [], "indistinct content"),
+    ],
+)
+async def test_check_poem_source_ready_handoff_states(
+    mock_db,
+    current_user_dict,
+    stored_status,
+    expected_ready,
+    expected_questions,
+    expected_message,
+) -> None:
+    """Readiness endpoint must map each workflow status to the right shape."""
+    with patch("src.app.api.v1.poem_source.crud_poem_sources.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = {
+            "id": 5,
+            "status": stored_status,
+            "follow_up_questions": [],
+            "error_message": expected_message,
+        }
+
+        result = await check_poem_source_ready(Mock(), 5, mock_db, current_user_dict)
+
+    assert result == {
+        "ready": expected_ready,
+        "status": stored_status,
+        "poem_source_id": 5,
+        "message": expected_message,
+        "questions": expected_questions,
+    }
+
+
+@pytest.mark.asyncio
+async def test_check_poem_source_ready_raises_not_found_for_other_owners(
+    mock_db, current_user_dict
+) -> None:
+    """The ownership filter on crud.get prevents foreign sources from leaking."""
+    with patch("src.app.api.v1.poem_source.crud_poem_sources.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = None
+
+        with pytest.raises(NotFoundException):
+            await check_poem_source_ready(Mock(), 999, mock_db, current_user_dict)
+
+
+@pytest.mark.asyncio
+async def test_submit_poem_source_answers_rejects_wrong_state(mock_db, current_user_dict) -> None:
+    payload = PoemSourceAnswerSubmission(answers={"q1": "hello"})
+
+    with patch("src.app.api.v1.poem_source.crud_poem_sources.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = {
+            "id": 13,
+            "status": PoemSourceStatus.GENERATING.value,
+            "follow_up_questions": [{"id": "q1", "text": "Q?"}],
+        }
+
+        with pytest.raises(HTTPException) as exc_info:
+            await submit_poem_source_answers(Mock(), 13, payload, current_user_dict, mock_db)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Poem source is not waiting for answers"
+
+
+@pytest.mark.asyncio
+async def test_submit_poem_source_answers_rejects_missing_not_found(
+    mock_db, current_user_dict
+) -> None:
+    payload = PoemSourceAnswerSubmission(answers={"q1": "hello"})
+
+    with patch("src.app.api.v1.poem_source.crud_poem_sources.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = None
+
+        with pytest.raises(NotFoundException):
+            await submit_poem_source_answers(Mock(), 404, payload, current_user_dict, mock_db)
+
+
+@pytest.mark.asyncio
+async def test_submit_poem_source_answers_rejects_when_no_questions_persisted(
+    mock_db, current_user_dict
+) -> None:
+    payload = PoemSourceAnswerSubmission(answers={"q1": "hello"})
+
+    with patch("src.app.api.v1.poem_source.crud_poem_sources.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = {
+            "id": 14,
+            "status": PoemSourceStatus.STAGE_1.value,
+            "follow_up_questions": [],
+        }
+
+        with pytest.raises(HTTPException) as exc_info:
+            await submit_poem_source_answers(Mock(), 14, payload, current_user_dict, mock_db)
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Poem source has no follow-up questions"
