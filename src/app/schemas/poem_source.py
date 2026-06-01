@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..core.enums import PoemSourceStatus
 from ..core.schemas import PersistentDeletion, TimestampSchema, UUIDSchema
+from .poet import PoetCardSchema
 
 __all__ = [
     "PoemSource",
@@ -87,6 +88,7 @@ class PoemSource(TimestampSchema, PoemSourceBase, UUIDSchema, PersistentDeletion
     ]
     follow_up_questions: list[PoemSourceQuestion] | None = None
     follow_up_answers: dict[str, str] | None = None
+    poet_candidates: list[PoetCardSchema] | None = None
     error_message: str | None = None
 
 
@@ -106,12 +108,14 @@ class PoemSourceRead(BaseModel):
     ]
     user_id: int
     created_at: datetime
+    poet_candidates: list[PoetCardSchema] | None = None
 
 
 class PoemSourceWorkflowRead(PoemSourceRead):
     image_analysis: str | None = None
     follow_up_questions: list[PoemSourceQuestion] | None = None
     follow_up_answers: dict[str, str] | None = None
+    poet_candidates: list[PoetCardSchema] | None = None
     error_message: str | None = None
     updated_at: datetime | None = None
 
@@ -122,6 +126,7 @@ class PoemSourceStatusResponse(BaseModel):
     poem_source_id: int
     message: str | None = None
     questions: list[PoemSourceQuestion] = Field(default_factory=list)
+    poet_candidates: list[PoetCardSchema] = Field(default_factory=list)
 
 
 class PoemSourceCreate(PoemSourceBase):
@@ -154,6 +159,7 @@ class PoemSourceUpdate(BaseModel):
     image_analysis: str | None = None
     follow_up_questions: list[PoemSourceQuestion] | None = None
     follow_up_answers: dict[str, str] | None = None
+    poet_candidates: list[PoetCardSchema] | None = None
     error_message: str | None = None
 
 

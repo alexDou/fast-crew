@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
@@ -20,6 +21,7 @@ class PoemSource(Base):
     image_analysis: Mapped[str | None] = mapped_column(Text, default=None)
     follow_up_questions: Mapped[list[dict[str, str]] | None] = mapped_column(JSON, default=None)
     follow_up_answers: Mapped[dict[str, str] | None] = mapped_column(JSON, default=None)
+    poet_candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, default=None)
     error_message: Mapped[str | None] = mapped_column(Text, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default_factory=lambda: datetime.now(UTC))

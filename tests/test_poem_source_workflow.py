@@ -8,10 +8,13 @@ from fastapi import HTTPException
 from src.app.api.v1.poem_source import check_poem_source_ready, submit_poem_source_answers
 from src.app.core.exceptions.http_exceptions import NotFoundException
 from src.app.schemas.poem_source import PoemSourceAnswerSubmission, PoemSourceStatus
+from tests.fixtures.poets import poet_card_fixtures
 
 
 @pytest.mark.asyncio
 async def test_check_poem_source_ready_returns_questions_for_stage_1(mock_db, current_user_dict) -> None:
+    poet_candidates = [poet_card_fixtures()[0].model_dump()]
+
     with patch("src.app.api.v1.poem_source.crud_poem_sources.get", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = {
             "id": 7,
@@ -20,6 +23,7 @@ async def test_check_poem_source_ready_returns_questions_for_stage_1(mock_db, cu
                 {"id": "q1", "text": "What feeling should guide the poem?"},
                 {"id": "q2", "text": "What detail matters most?"},
             ],
+            "poet_candidates": poet_candidates,
             "error_message": None,
         }
 
@@ -34,6 +38,7 @@ async def test_check_poem_source_ready_returns_questions_for_stage_1(mock_db, cu
             {"id": "q1", "text": "What feeling should guide the poem?"},
             {"id": "q2", "text": "What detail matters most?"},
         ],
+        "poet_candidates": poet_candidates,
     }
 
 
@@ -130,6 +135,7 @@ async def test_check_poem_source_ready_handoff_states(
         "poem_source_id": 5,
         "message": expected_message,
         "questions": expected_questions,
+        "poet_candidates": [],
     }
 
 
