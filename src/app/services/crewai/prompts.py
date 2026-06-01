@@ -23,7 +23,7 @@ MAX_POET_CANDIDATES = 15
 QUESTION_GENERATION_PROMPT = (
     "You are preparing a staged poetry workflow. Based on the image analysis and the user's optional note, "
     "write 1 to 3 short follow-up questions that will help poets personalize the final poems. "
-    'Return JSON only in the shape {"questions": [{"text": string, "kind": string | null}]}. '
+    'Return JSON only in the shape {"questions": [{"text": string}]}. '
     "The questions must be specific, concrete, and easy to answer in one or two sentences."
 )
 
@@ -57,13 +57,12 @@ def strip_json_markdown(response_content: str) -> str:
 
 
 def normalize_questions(raw_questions: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Return a clean, at-most-3 list of ``{id, text, [kind]}`` dicts.
+    """Return a clean, at-most-3 list of ``{id, text}`` dicts.
 
     - Empty question texts are dropped.
     - IDs are re-assigned deterministically (``q1``, ``q2``, ``q3``) based
       on the *output* order so callers never see gaps such as ``q3``
       appearing on its own when upstream returned blanks for q1/q2.
-    - ``kind`` is preserved only when the upstream provides a non-empty value.
     - Raises ``RuntimeError`` when no usable question survives.
     """
     normalized_questions: list[dict[str, str]] = []
@@ -76,9 +75,6 @@ def normalize_questions(raw_questions: list[dict[str, Any]]) -> list[dict[str, s
             "id": f"q{len(normalized_questions) + 1}",
             "text": question_text,
         }
-        kind = str(raw_question.get("kind") or "").strip()
-        if kind:
-            question["kind"] = kind
         normalized_questions.append(question)
 
     if not normalized_questions:

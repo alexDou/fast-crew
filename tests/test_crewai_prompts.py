@@ -20,7 +20,7 @@ class TestNormalizeQuestions:
     def test_assigns_deterministic_ids_and_caps_at_three(self) -> None:
         raw = [
             {"text": "  What mood?  "},
-            {"text": "Any smells?", "kind": "sensory"},
+            {"text": "Any smells?", "category": "ignored"},
             {"text": "Name the place"},
             {"text": "dropped because we cap at three"},
         ]
@@ -29,15 +29,15 @@ class TestNormalizeQuestions:
 
         assert result == [
             {"id": "q1", "text": "What mood?"},
-            {"id": "q2", "text": "Any smells?", "kind": "sensory"},
+            {"id": "q2", "text": "Any smells?"},
             {"id": "q3", "text": "Name the place"},
         ]
 
-    def test_drops_blank_questions_and_ignores_blank_kind(self) -> None:
+    def test_drops_blank_questions_and_ignores_extra_metadata(self) -> None:
         raw = [
             {"text": ""},
             {"text": "   "},
-            {"text": "What about the hands?", "kind": "   "},
+            {"text": "What about the hands?", "category": "sensory"},
         ]
 
         result = normalize_questions(raw)

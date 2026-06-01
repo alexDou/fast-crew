@@ -37,7 +37,6 @@ class PoemSourceQuestion(BaseModel):
 
     id: Annotated[str, Field(min_length=1, max_length=20)]
     text: Annotated[str, Field(min_length=1, max_length=500)]
-    kind: Annotated[str | None, Field(default=None, max_length=50)] = None
 
 
 class PoemSourceAnswerSubmission(BaseModel):
