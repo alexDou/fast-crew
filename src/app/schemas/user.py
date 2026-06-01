@@ -40,9 +40,25 @@ class UserCreateInternal(UserBase):
 class UserUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: Annotated[str | None, Field(min_length=2, max_length=30, pattern=r"^[a-zA-Z0-9 \-]+$", examples=["User Userberg"], default=None)]
+    name: Annotated[
+        str | None,
+        Field(
+            min_length=2,
+            max_length=30,
+            pattern=r"^[a-zA-Z0-9 \-]+$",
+            examples=["User Userberg"],
+            default=None,
+        ),
+    ]
     username: Annotated[
-        str | None, Field(min_length=2, max_length=20, pattern=r"^[a-zA-Z0-9.:@_\-]+$", examples=["userberg"], default=None)
+        str | None,
+        Field(
+            min_length=2,
+            max_length=20,
+            pattern=r"^[a-zA-Z0-9.:@_\-]+$",
+            examples=["userberg"],
+            default=None,
+        ),
     ]
     email: Annotated[EmailStr | None, Field(examples=["user.userberg@example.com"], default=None)]
 

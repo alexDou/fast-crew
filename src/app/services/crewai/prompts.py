@@ -380,6 +380,8 @@ def extract_poem_from_result(result: Any) -> str | None:
     tasks_output = getattr(result, "tasks_output", None) or []
     for task in tasks_output:
         raw = getattr(task, "raw", None)
-        if raw and isinstance(raw, str) and raw.strip():
-            return raw.strip()
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text:
+                return text
     return None

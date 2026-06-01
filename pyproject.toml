@@ -96,6 +96,7 @@ packages = ["src"]
 target-version = "py311"
 line-length = 120
 fix = true
+exclude = [".venv", "crewai_project"]
 
 [tool.ruff.lint]
 select = [

@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-CrewAIModules = tuple[type[Any], type[Any], str]
+CrewAIModules = tuple[type[Any], str]
 
 
 def resolve_openrouter_api_key() -> str:
@@ -58,14 +58,14 @@ def resolve_crewai_root() -> tuple[str, str]:
 
 
 def load_poets_crew_modules() -> CrewAIModules:
-    """Import ``PoetsCrew`` and ``ImageAnalyzerTool`` fresh for this job.
+    """Import ``ImageAnalyzerTool`` fresh for stage-1 image analysis.
 
     The crew package reads YAML config with relative paths, so we temporarily
-    ``chdir`` into the crew root. Stale module state is cleared first to
-    make sure per-job model overrides (e.g. the fallback model) are honored.
+    ``chdir`` into the crew root. Stale module state is cleared first so
+    repeated stage-1 jobs do not reuse stale imports.
 
-    Returns the loaded classes plus the resolved OpenRouter API key so the
-    caller can share it with the question-generation prompt.
+    Returns the tool class plus the resolved OpenRouter API key so the caller
+    can share it with the question-generation and poet-picker prompts.
     """
     _, crew_root = resolve_crewai_root()
     original_cwd = os.getcwd()
@@ -81,9 +81,8 @@ def load_poets_crew_modules() -> CrewAIModules:
             if mod_name.startswith("poets_crew"):
                 del sys.modules[mod_name]
 
-        from poets_crew.crew import PoetsCrew
         from poets_crew.tools.image_analyzer_tool import ImageAnalyzerTool
 
-        return PoetsCrew, ImageAnalyzerTool, openrouter_api_key
+        return ImageAnalyzerTool, openrouter_api_key
     finally:
         os.chdir(original_cwd)

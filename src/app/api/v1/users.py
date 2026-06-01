@@ -44,14 +44,13 @@ async def write_user(
 ) -> dict[str, Any]:
     existing_user = await crud_users.get(db=db, email=user.email, is_deleted=False)
     if existing_user:
-        email_verified: bool = existing_user.get("is_email_verified")
-        if email_verified:
+        if existing_user.get("is_email_verified") is True:
             raise DuplicateValueException("Email is already registered")
 
         time_now = datetime.now(UTC)
-        created_at: datetime | None = existing_user.get("created_at")
+        created_at = existing_user.get("created_at")
         expires_after = timedelta(days=settings.EMAIL_VERIFICATION_EXPIRE_DAYS)
-        if (time_now - created_at) < expires_after:
+        if isinstance(created_at, datetime) and (time_now - created_at) < expires_after:
             raise DuplicateValueException("Email is not yet verified, please check your email")
 
         await crud_users.db_delete(db=db, id=existing_user["id"])
@@ -72,7 +71,12 @@ async def write_user(
 
     try:
         verification_token = await create_email_verification_token(data={"sub": user.email})
-        await _send_verification_email(request=request, to_email=user.email, to_name=user.name, token=verification_token)
+        await _send_verification_email(
+            request=request,
+            to_email=user.email,
+            to_name=user.name,
+            token=verification_token,
+        )
     except Exception:
         import structlog
         structlog.get_logger(__name__).error("Failed to send verification email during signup", email=user.email)

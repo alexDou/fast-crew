@@ -22,7 +22,7 @@ from ..storage_service import storage_service
 from . import persistence
 from .artifacts import persist_output_artifacts
 from .crew_loader import load_poets_crew_modules, resolve_openrouter_api_key
-from .errors import INDISTINCT_CONTENT_MESSAGE, is_rate_limit_error, normalize_error_message
+from .errors import INDISTINCT_CONTENT_MESSAGE, normalize_error_message
 from .prompts import (
     generate_follow_up_questions,
     generate_poet_candidate_ids,
@@ -111,24 +111,6 @@ class CrewAIService:
     # Stage runners
     # ------------------------------------------------------------------
 
-    def _kickoff_with_fallback(self, crew_cls: Any, inputs: dict[str, Any]) -> Any:
-        """Run ``crew.kickoff(inputs=inputs)``; retry on rate-limit errors.
-
-        When the default poet model hits a 429 we re-instantiate the crew
-        with ``POET_FALLBACK_MODEL`` so transient upstream pressure does
-        not surface to the user as a workflow failure.
-        """
-        try:
-            crew_instance = crew_cls()
-            return crew_instance.crew().kickoff(inputs=inputs)
-        except Exception as exc:
-            if is_rate_limit_error(exc):
-                fallback = crew_cls.POET_FALLBACK_MODEL
-                logger.warning("Rate limit hit on default model, retrying with %s: %s", fallback, exc)
-                crew_instance = crew_cls(poet_model=fallback)
-                return crew_instance.crew().kickoff(inputs=inputs)
-            raise
-
     def _run_stage_1_sync(
         self,
         poem_source_id: int,
@@ -141,7 +123,7 @@ class CrewAIService:
         should_cleanup_local_image = False
 
         try:
-            _, ImageAnalyzerTool, openrouter_api_key = load_poets_crew_modules()
+            ImageAnalyzerTool, openrouter_api_key = load_poets_crew_modules()
             local_image_path, should_cleanup_local_image = storage_service.prepare_local_media_file(
                 media_path
             )
@@ -202,7 +184,7 @@ class CrewAIService:
             self._cleanup_local_image(local_image_path, should_cleanup_local_image)
 
     def _run_stage_2_sync(self, poem_source_id: int, poet_id: int | None = None) -> dict[str, Any]:
-        """Generate poems from persisted ``image_analysis`` + ``follow_up_answers``."""
+        """Generate one poem from persisted ``image_analysis`` + ``follow_up_answers``."""
         local_image_path = ""
         should_cleanup_local_image = False
 
