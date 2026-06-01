@@ -44,8 +44,8 @@ def register_admin_views(admin: CRUDAdmin) -> None:
         allowed_actions={"view"},
     )
 
-    # Poem variants (with variant_key / author_label) are useful for support
-    # to confirm what the crew actually produced per source.
+    # Generated poems are view-only from the admin panel; workflow writes are
+    # owned by the CrewAI service.
     admin.add_view(
         model=Poem,
         create_schema=PoemCreate,

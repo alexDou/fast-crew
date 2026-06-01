@@ -15,8 +15,6 @@ from typing import Any, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from .prompts import VARIANT_LABELS
-
 T = TypeVar("T")
 
 
@@ -93,37 +91,39 @@ async def update_poem_source_status(
     await update_poem_source(db, poem_source_id, status=status)
 
 
-async def save_poems(
+async def save_poem(
     db: AsyncSession,
     user_id: int,
     poem_source_id: int,
-    poems: dict[str, str],
+    poem: str,
     *,
     commit: bool = True,
 ) -> None:
-    """Persist one row per non-empty variant, tagged with its author label."""
+    """Persist a single poem row for a poem source.
+
+    The poet-based workflow yields exactly one poem per source. ``poet_id``
+    will be wired through in the next migration step (see backend.md §B5);
+    until then the column is unset and rows default to NULL (freestyle).
+    """
     from ...crud.crud_poems import crud_poems
     from ...schemas.poem import PoemCreateInternal
 
-    for variant_key, poem_text in poems.items():
-        if not (poem_text and poem_text.strip()):
-            continue
+    if not (poem and poem.strip()):
+        return
 
-        # Generate datetime directly to avoid serialization issues in the
-        # PoemCreateInternal schema (datetime strings vs datetime objects).
-        now = datetime.now(UTC).replace(tzinfo=None)
+    # Generate datetime directly to avoid serialization issues in the
+    # PoemCreateInternal schema (datetime strings vs datetime objects).
+    now = datetime.now(UTC).replace(tzinfo=None)
 
-        poem_data = PoemCreateInternal(
-            user_id=user_id,
-            poem_source_id=poem_source_id,
-            poem=poem_text,
-            variant_key=variant_key,
-            author_label=VARIANT_LABELS.get(variant_key),
-            created_at=now,
-            updated_at=None,
-        )
+    poem_data = PoemCreateInternal(
+        user_id=user_id,
+        poem_source_id=poem_source_id,
+        poem=poem,
+        created_at=now,
+        updated_at=None,
+    )
 
-        await crud_poems.create(db=db, object=poem_data)
+    await crud_poems.create(db=db, object=poem_data)
 
     if commit:
         await db.commit()

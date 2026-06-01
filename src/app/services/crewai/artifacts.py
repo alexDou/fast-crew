@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 
 from ..storage_service import StorageError, storage_service
-from .prompts import VARIANT_ORDER
 
 logger = logging.getLogger(__name__)
 
@@ -14,9 +13,9 @@ def persist_output_artifacts(
     poem_source_id: int,
     *,
     image_analysis: str | None = None,
-    poems: dict[str, str | None] | None = None,
+    poem: str | None = None,
 ) -> None:
-    """Best-effort: write image analysis + poem variants as markdown files.
+    """Best-effort: write image analysis + the generated poem as markdown files.
 
     The DB is the source of truth; these artifacts are purely for
     debugging and manual inspection so any storage failure is logged and
@@ -25,9 +24,8 @@ def persist_output_artifacts(
     artifacts: dict[str, str] = {}
     if image_analysis:
         artifacts["image_analysis.md"] = image_analysis
-    if poems:
-        for variant_key in VARIANT_ORDER:
-            artifacts[f"{variant_key}.md"] = poems.get(variant_key) or ""
+    if poem:
+        artifacts["poem.md"] = poem
 
     for filename, content in artifacts.items():
         if not content.strip():

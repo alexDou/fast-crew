@@ -41,7 +41,7 @@ def test_store_output_artifact_to_local_disk(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(settings, "LOCAL_STORAGE_ROOT", str(tmp_path))
     monkeypatch.setattr(settings, "S3_OUTPUT_PREFIX", "output")
 
-    stored_path = service.store_output_artifact(poem_source_id=8, filename="poet_mystic.md", content="Great poem")
+    stored_path = service.store_output_artifact(poem_source_id=8, filename="poem.md", content="Great poem")
 
-    assert stored_path == "output/8/poet_mystic.md"
+    assert stored_path == "output/8/poem.md"
     assert (tmp_path / stored_path).read_text(encoding="utf-8") == "Great poem"

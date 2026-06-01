@@ -18,7 +18,6 @@ class PoetsCrew:
     """PoetsCrew crew"""
 
     POET_DEFAULT_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
-    POET_MYSTIC_MODEL = "openrouter/deepseek/deepseek-v3.2"
     POET_FALLBACK_MODEL = "openrouter/deepseek/deepseek-v3.2"
 
     agents: list[BaseAgent]
@@ -29,9 +28,8 @@ class PoetsCrew:
     agents_config = os.path.join(_config_dir, 'agents.yaml')
     tasks_config = os.path.join(_config_dir, 'tasks.yaml')
 
-    def __init__(self, poet_model: str | None = None, poet_mystic_model: str | None = None):
+    def __init__(self, poet_model: str | None = None):
         self._poet_model = poet_model or self.POET_DEFAULT_MODEL
-        self._poet_mystic_model = poet_mystic_model or self.POET_MYSTIC_MODEL
 
     # CrewAI TextFileKnowledgeSource automatically looks in the knowledge/ directory
     text_knowledge_source = TextFileKnowledgeSource(
@@ -39,7 +37,7 @@ class PoetsCrew:
     )
 
     @agent
-    def poet_modern(self) -> Agent:
+    def poem_writer(self) -> Agent:
         llm = LLM(
             model=self._poet_model,
             base_url="https://openrouter.ai/api/v1",
@@ -47,53 +45,14 @@ class PoetsCrew:
         )
         return Agent(
             llm=llm,
-            config=self.agents_config['poet_modern'],
-            verbose=True,
-        )
-
-    @agent
-    def poet_classic(self) -> Agent:
-        llm = LLM(
-            model=self._poet_model,
-            base_url="https://openrouter.ai/api/v1",
-            api_key=_get_openrouter_api_key()
-        )
-        return Agent(
-            llm=llm,
-            config=self.agents_config['poet_classic'],
-            verbose=True,
-        )
-
-    @agent
-    def poet_mystic(self) -> Agent:
-        llm = LLM(
-            model=self._poet_mystic_model,
-            base_url="https://openrouter.ai/api/v1",
-            api_key=_get_openrouter_api_key()
-        )
-        return Agent(
-            llm=llm,
-            config=self.agents_config['poet_mystic'],
+            config=self.agents_config['poem_writer'],
             verbose=True,
         )
 
     @task
-    def poem_task_modern(self) -> Task:
+    def poem_task(self) -> Task:
         return Task(
-            config=self.tasks_config['poem_task_modern'],
-        )
-
-    @task
-    def poem_task_classic(self) -> Task:
-        return Task(
-            config=self.tasks_config['poem_task_classic'],
-        )
-
-    @task
-    def poem_task_mystic(self) -> Task:
-        return Task(
-            config=self.tasks_config['poem_task_mystic'],
-            context=[self.poem_task_modern(), self.poem_task_classic()],
+            config=self.tasks_config['poem_task'],
         )
 
     @crew

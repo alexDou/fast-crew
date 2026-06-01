@@ -16,14 +16,6 @@ QUESTION_MODEL = "openrouter/deepseek/deepseek-v3.2"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MAX_FOLLOW_UP_QUESTIONS = 3
 
-VARIANT_LABELS: dict[str, str] = {
-    "poet_modern": "Modern Poet",
-    "poet_classic": "Classic Poet",
-    "poet_mystic": "Mystic Poet",
-}
-# Canonical ordering used when reading task outputs from the crew result.
-VARIANT_ORDER: tuple[str, ...] = ("poet_modern", "poet_classic", "poet_mystic")
-
 QUESTION_GENERATION_PROMPT = (
     "You are preparing a staged poetry workflow. Based on the image analysis and the user's optional note, "
     "write 1 to 3 short follow-up questions that will help poets personalize the final poems. "
@@ -148,10 +140,20 @@ def build_generation_context(
     return "\n\n".join(parts)
 
 
-def extract_poems_from_result(result: Any) -> dict[str, str | None]:
-    """Map the crew result's ordered ``tasks_output`` to variant-keyed poems."""
-    tasks_output = getattr(result, "tasks_output", []) or []
-    poems: dict[str, str | None] = {}
-    for index, variant_key in enumerate(VARIANT_ORDER):
-        poems[variant_key] = tasks_output[index].raw if index < len(tasks_output) else None
-    return poems
+def extract_poem_from_result(result: Any) -> str | None:
+    """Return the first non-empty raw output from a crew or LLM result.
+
+    The poet-based workflow only produces one poem per source. The
+    helper accepts either a CrewAI-style result (``.tasks_output[i].raw``)
+    or a plain string and returns the trimmed text.
+    """
+    if isinstance(result, str):
+        text = result.strip()
+        return text or None
+
+    tasks_output = getattr(result, "tasks_output", None) or []
+    for task in tasks_output:
+        raw = getattr(task, "raw", None)
+        if raw and isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None

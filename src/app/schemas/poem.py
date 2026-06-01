@@ -32,8 +32,6 @@ class PoemRead(BaseModel):
     poem_source_id: int
 
     poem: Annotated[str, Field(min_length=40, max_length=6320)]
-    variant_key: str | None = None
-    author_label: str | None = None
 
     created_at: datetime
     updated_at: datetime | None
@@ -50,8 +48,6 @@ class PoemCreateInternal(BaseModel):
     user_id: int
     poem_source_id: int
     poem: Annotated[str, Field(min_length=2, max_length=6320)]
-    variant_key: str | None = None
-    author_label: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
 

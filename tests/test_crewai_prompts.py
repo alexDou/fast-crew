@@ -5,9 +5,8 @@ from types import SimpleNamespace
 import pytest
 
 from src.app.services.crewai.prompts import (
-    VARIANT_ORDER,
     build_generation_context,
-    extract_poems_from_result,
+    extract_poem_from_result,
     extract_text_content,
     normalize_questions,
 )
@@ -87,34 +86,32 @@ class TestBuildGenerationContext:
         assert context == "Original user context:\nSome context"
 
 
-class TestExtractPoemsFromResult:
-    def test_maps_ordered_task_outputs_to_variants(self) -> None:
+class TestExtractPoemFromResult:
+    def test_returns_first_non_empty_task_output(self) -> None:
         result = SimpleNamespace(
             tasks_output=[
-                SimpleNamespace(raw="modern"),
-                SimpleNamespace(raw="classic"),
-                SimpleNamespace(raw="mystic"),
+                SimpleNamespace(raw=""),
+                SimpleNamespace(raw="  One finished poem  "),
+                SimpleNamespace(raw="ignored"),
             ]
         )
 
-        poems = extract_poems_from_result(result)
+        poem = extract_poem_from_result(result)
 
-        assert list(poems.keys()) == list(VARIANT_ORDER)
-        assert poems == {"poet_modern": "modern", "poet_classic": "classic", "poet_mystic": "mystic"}
+        assert poem == "One finished poem"
 
-    def test_fills_missing_variants_with_none(self) -> None:
-        result = SimpleNamespace(tasks_output=[SimpleNamespace(raw="only modern")])
+    def test_accepts_plain_string_result(self) -> None:
+        assert extract_poem_from_result("  A plain poem  ") == "A plain poem"
 
-        poems = extract_poems_from_result(result)
+    def test_returns_none_when_no_output_exists(self) -> None:
+        result = SimpleNamespace(tasks_output=[SimpleNamespace(raw="   ")])
 
-        assert poems == {"poet_modern": "only modern", "poet_classic": None, "poet_mystic": None}
+        assert extract_poem_from_result(result) is None
 
     def test_handles_result_without_tasks_output_attribute(self) -> None:
         result = SimpleNamespace()
 
-        poems = extract_poems_from_result(result)
-
-        assert poems == {"poet_modern": None, "poet_classic": None, "poet_mystic": None}
+        assert extract_poem_from_result(result) is None
 
 
 class TestExtractTextContent:

@@ -25,7 +25,7 @@ from .crew_loader import load_poets_crew_modules
 from .errors import INDISTINCT_CONTENT_MESSAGE, is_rate_limit_error, normalize_error_message
 from .prompts import (
     build_generation_context,
-    extract_poems_from_result,
+    extract_poem_from_result,
     generate_follow_up_questions,
 )
 
@@ -88,17 +88,17 @@ class CrewAIService:
     ) -> None:
         await persistence.update_poem_source_status(db, poem_source_id, status)
 
-    async def _save_poems(
+    async def _save_poem(
         self,
         db: AsyncSession,
         user_id: int,
         poem_source_id: int,
-        poems: dict[str, str],
+        poem: str,
         *,
         commit: bool = True,
     ) -> None:
-        await persistence.save_poems(
-            db, user_id=user_id, poem_source_id=poem_source_id, poems=poems, commit=commit
+        await persistence.save_poem(
+            db, user_id=user_id, poem_source_id=poem_source_id, poem=poem, commit=commit
         )
 
     # ------------------------------------------------------------------
@@ -206,18 +206,18 @@ class CrewAIService:
                 "enhance": f"\n\n{prompt_context}" if prompt_context else "",
             }
             result = self._kickoff_with_fallback(PoetsCrew, inputs)
-            poems = extract_poems_from_result(result)
+            poem_text = extract_poem_from_result(result) or ""
             persist_output_artifacts(
-                poem_source_id=poem_source_id, image_analysis=image_analysis, poems=poems
+                poem_source_id=poem_source_id, image_analysis=image_analysis, poem=poem_text
             )
 
             async def persist_stage_2(db: AsyncSession) -> None:
                 try:
-                    await persistence.save_poems(
+                    await persistence.save_poem(
                         db,
                         user_id=user_id,
                         poem_source_id=poem_source_id,
-                        poems={key: value or "" for key, value in poems.items()},
+                        poem=poem_text,
                         commit=False,
                     )
                     await persistence.update_poem_source(
@@ -233,12 +233,12 @@ class CrewAIService:
                     raise
 
             persistence.run_async(persistence.with_thread_db(persist_stage_2))
-            return {"image_analysis": image_analysis, "poems": poems}
+            return {"image_analysis": image_analysis, "poem": poem_text}
         except Exception as exc:
             self._persist_stage_failure(
                 poem_source_id=poem_source_id, stage_label="Stage 2", exc=exc
             )
-            return {"image_analysis": "", "poems": {}}
+            return {"image_analysis": "", "poem": ""}
         finally:
             self._cleanup_local_image(local_image_path, should_cleanup_local_image)
 

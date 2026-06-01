@@ -3,7 +3,7 @@
 FastAPI that serves a purpose to be a gateway to multiagent AI flows orchestrated by notorious CrewAI
 
 ## List of Crews
-- **Poets crew**. Consists of several poets agents competing for critic agent choice.
+- **Poets crew**. Generates a single poem from an uploaded image and staged user context.
 
 ### TechStack
 - Python FastAPI
