@@ -2,6 +2,7 @@
 
 from .poem import Poem
 from .poem_source import PoemSource, PoemSourceStatus
+from .poet import Poet
 from .user import User
 
-__all__ = ["Poem", "PoemSource", "PoemSourceStatus", "User"]
+__all__ = ["Poem", "PoemSource", "PoemSourceStatus", "Poet", "User"]
