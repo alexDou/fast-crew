@@ -21,13 +21,12 @@ from ...core.enums import PoemSourceStatus
 from ..storage_service import storage_service
 from . import persistence
 from .artifacts import persist_output_artifacts
-from .crew_loader import load_poets_crew_modules
+from .crew_loader import load_poets_crew_modules, resolve_openrouter_api_key
 from .errors import INDISTINCT_CONTENT_MESSAGE, is_rate_limit_error, normalize_error_message
 from .prompts import (
-    build_generation_context,
-    extract_poem_from_result,
     generate_follow_up_questions,
     generate_poet_candidate_ids,
+    generate_stage_2_poem,
 )
 
 logger = logging.getLogger(__name__)
@@ -208,34 +207,30 @@ class CrewAIService:
         should_cleanup_local_image = False
 
         try:
-            PoetsCrew, _, _ = load_poets_crew_modules()
+            openrouter_api_key = resolve_openrouter_api_key()
 
             poem_source = self._load_poem_source(poem_source_id)
             if poem_source is None:
                 raise RuntimeError("Poem source not found")
 
-            media_path = poem_source.get("media_path")
             user_id = poem_source.get("user_id")
             image_analysis = poem_source.get("image_analysis")
             questions = poem_source.get("follow_up_questions") or []
             answers = poem_source.get("follow_up_answers") or {}
 
-            if not media_path or not user_id or not image_analysis:
+            if not user_id or not image_analysis:
                 raise RuntimeError("Poem source is missing staged workflow data")
 
-            local_image_path, should_cleanup_local_image = storage_service.prepare_local_media_file(
-                media_path
+            poet_name = self._load_poet_name(poet_id) if poet_id is not None else None
+            if poet_id is not None and poet_name is None:
+                raise RuntimeError("Selected poet not found")
+            poem_text = generate_stage_2_poem(
+                openrouter_api_key,
+                image_analysis,
+                questions,
+                answers,
+                poet_name,
             )
-            prompt_context = build_generation_context(
-                poem_source.get("enhance"), questions, answers
-            )
-            inputs = {
-                "image_path": local_image_path,
-                "image_analysis": image_analysis,
-                "enhance": f"\n\n{prompt_context}" if prompt_context else "",
-            }
-            result = self._kickoff_with_fallback(PoetsCrew, inputs)
-            poem_text = extract_poem_from_result(result) or ""
             persist_output_artifacts(
                 poem_source_id=poem_source_id, image_analysis=image_analysis, poem=poem_text
             )
@@ -328,6 +323,20 @@ class CrewAIService:
                 for poet_id in poet_ids
                 if poet_id in poets_by_id
             ]
+
+        return persistence.run_async(persistence.with_thread_db(load))
+
+    @staticmethod
+    def _load_poet_name(poet_id: int) -> str | None:
+        """Load the active poet name used by the Stage 2 prompt."""
+
+        async def load(db: AsyncSession) -> str | None:
+            from sqlalchemy import select
+
+            from ...models.poet import Poet
+
+            result = await db.execute(select(Poet.name).where(Poet.id == poet_id, Poet.is_active.is_(True)))
+            return result.scalar_one_or_none()
 
         return persistence.run_async(persistence.with_thread_db(load))
 

@@ -7,12 +7,16 @@ import pytest
 
 from src.app.services.crewai.prompts import (
     build_generation_context,
+    build_stage_2_messages,
+    clean_poem_output,
     extract_poem_from_result,
     extract_text_content,
     fallback_poet_ids,
     generate_poet_candidate_ids,
+    generate_stage_2_poem,
     normalize_poet_ids,
     normalize_questions,
+    poem_is_too_short,
 )
 
 
@@ -160,6 +164,51 @@ class TestExtractPoemFromResult:
         result = SimpleNamespace()
 
         assert extract_poem_from_result(result) is None
+
+
+class TestStage2Prompt:
+    def test_builds_poet_branch_without_ids_or_style_metadata(self) -> None:
+        system_prompt, user_prompt = build_stage_2_messages(
+            "A moonlit garden.",
+            [{"id": "q1", "text": "What feeling should guide it?"}],
+            {"q1": "Tenderness."},
+            "Emily Dickinson",
+        )
+
+        combined = system_prompt + "\n" + user_prompt
+        assert "unmistakably recognizable" in system_prompt
+        assert "Poet to replicate: Emily Dickinson" in user_prompt
+        assert "What feeling should guide it?: Tenderness." in user_prompt
+        assert "poet_id" not in combined
+        assert "style_markers" not in combined
+
+    def test_builds_freestyle_branch(self) -> None:
+        system_prompt, user_prompt = build_stage_2_messages("A quiet sea.", [], {}, None)
+
+        assert "Do not imitate any specific named poet" in system_prompt
+        assert "Poet to replicate" not in user_prompt
+        assert "- None provided." in user_prompt
+
+    def test_clean_poem_output_strips_preamble_and_caps_lines(self) -> None:
+        raw = "Here is the poem:\n" + "\n".join(f"line {index}" for index in range(405))
+
+        cleaned = clean_poem_output(raw)
+
+        assert not cleaned.lower().startswith("here is")
+        assert len(cleaned.splitlines()) == 400
+
+    def test_poem_is_too_short_counts_non_empty_lines(self) -> None:
+        assert poem_is_too_short("one\n\n two") is True
+        assert poem_is_too_short("one\ntwo\nthree") is False
+
+    def test_generate_stage_2_poem_retries_short_output(self) -> None:
+        with patch("src.app.services.crewai.prompts._request_stage_2_poem") as mock_request:
+            mock_request.side_effect = ["too short", "line one\nline two\nline three"]
+
+            poem = generate_stage_2_poem("key", "A quiet sea.", [], {}, None)
+
+        assert poem == "line one\nline two\nline three"
+        assert mock_request.call_count == 2
 
 
 class TestExtractTextContent:
