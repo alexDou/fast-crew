@@ -3,6 +3,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.dependencies import get_current_superuser, get_current_user
@@ -10,6 +11,8 @@ from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import ForbiddenException, NotFoundException
 from ...core.utils.cache import cache
 from ...crud.crud_poem_sources import crud_poem_sources
+from ...models.poem import Poem
+from ...models.poet import Poet
 from ...schemas.poem_source import (
     PoemSourceAnswerSubmission,
     PoemSourceAnswerSubmissionAccepted,
@@ -219,15 +222,29 @@ async def submit_poem_source_answers(
     if db_poem_source.get("status") != PoemSourceStatus.STAGE_1.value:
         raise HTTPException(status_code=409, detail="Poem source is not waiting for answers")
 
+    existing_poem_result = await db.execute(
+        select(Poem.id).where(Poem.poem_source_id == id, Poem.is_deleted.is_(False)).limit(1)
+    )
+    if existing_poem_result.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="Poem source already has a generated poem")
+
     questions = db_poem_source.get("follow_up_questions") or []
     expected_question_ids = {question["id"] for question in questions}
     submitted_question_ids = set(payload.answers.keys())
 
-    if not expected_question_ids:
-        raise HTTPException(status_code=409, detail="Poem source has no follow-up questions")
+    if submitted_question_ids - expected_question_ids:
+        raise HTTPException(status_code=422, detail="Answers include unknown follow-up questions")
 
-    if submitted_question_ids != expected_question_ids:
-        raise HTTPException(status_code=422, detail="Answers must be provided for every follow-up question")
+    if payload.poet_id is not None:
+        active_poet_result = await db.execute(
+            select(Poet.id).where(Poet.id == payload.poet_id, Poet.is_active.is_(True))
+        )
+        if active_poet_result.scalar_one_or_none() is None:
+            raise HTTPException(status_code=422, detail="Selected poet does not exist")
+
+        candidate_ids = {candidate["id"] for candidate in db_poem_source.get("poet_candidates") or []}
+        if payload.poet_id not in candidate_ids:
+            raise HTTPException(status_code=422, detail="Selected poet is not available for this poem source")
 
     await crud_poem_sources.update(
         db=db,
@@ -240,7 +257,7 @@ async def submit_poem_source_answers(
     )
     await db.commit()
 
-    crewai_service.start_stage_2_generation(poem_source_id=id)
+    crewai_service.start_stage_2_generation(poem_source_id=id, poet_id=payload.poet_id)
 
     return {
         "message": "Answers accepted",

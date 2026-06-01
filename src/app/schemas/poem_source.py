@@ -42,20 +42,18 @@ class PoemSourceQuestion(BaseModel):
 class PoemSourceAnswerSubmission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    answers: dict[str, str]
+    answers: dict[str, str] = Field(default_factory=dict)
+    poet_id: int | None = None
 
     @field_validator("answers")
     @classmethod
     def validate_answers(cls, values: dict[str, str]) -> dict[str, str]:
-        if not values:
-            raise ValueError("At least one answer is required")
-
         normalized_answers: dict[str, str] = {}
         for question_id, answer in values.items():
             normalized_question_id = question_id.strip()
             normalized_answer = answer.strip()
-            if not normalized_question_id or not normalized_answer:
-                raise ValueError("Answers must include non-empty question ids and values")
+            if not normalized_question_id:
+                raise ValueError("Answers must include non-empty question ids")
             normalized_answers[normalized_question_id] = normalized_answer
 
         return normalized_answers

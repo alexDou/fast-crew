@@ -63,9 +63,9 @@ class CrewAIService:
             enhance,
         )
 
-    def start_stage_2_generation(self, poem_source_id: int) -> None:
+    def start_stage_2_generation(self, poem_source_id: int, poet_id: int | None = None) -> None:
         """Submit stage-2 (poem generation from persisted Q/A + analysis)."""
-        self.executor.submit(self._run_stage_2_sync, poem_source_id)
+        self.executor.submit(self._run_stage_2_sync, poem_source_id, poet_id)
 
     # ------------------------------------------------------------------
     # Compatibility shims retained for tests + incremental migration
@@ -202,7 +202,7 @@ class CrewAIService:
         finally:
             self._cleanup_local_image(local_image_path, should_cleanup_local_image)
 
-    def _run_stage_2_sync(self, poem_source_id: int) -> dict[str, Any]:
+    def _run_stage_2_sync(self, poem_source_id: int, poet_id: int | None = None) -> dict[str, Any]:
         """Generate poems from persisted ``image_analysis`` + ``follow_up_answers``."""
         local_image_path = ""
         should_cleanup_local_image = False
@@ -222,8 +222,6 @@ class CrewAIService:
 
             if not media_path or not user_id or not image_analysis:
                 raise RuntimeError("Poem source is missing staged workflow data")
-            if not answers:
-                raise RuntimeError("Poem source is missing follow-up answers")
 
             local_image_path, should_cleanup_local_image = storage_service.prepare_local_media_file(
                 media_path
@@ -248,6 +246,7 @@ class CrewAIService:
                         db,
                         user_id=user_id,
                         poem_source_id=poem_source_id,
+                        poet_id=poet_id,
                         poem=poem_text,
                         commit=False,
                     )
