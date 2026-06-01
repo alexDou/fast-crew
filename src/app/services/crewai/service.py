@@ -94,11 +94,17 @@ class CrewAIService:
         user_id: int,
         poem_source_id: int,
         poem: str,
+        poet_id: int | None = None,
         *,
         commit: bool = True,
     ) -> None:
         await persistence.save_poem(
-            db, user_id=user_id, poem_source_id=poem_source_id, poem=poem, commit=commit
+            db,
+            user_id=user_id,
+            poem_source_id=poem_source_id,
+            poet_id=poet_id,
+            poem=poem,
+            commit=commit,
         )
 
     # ------------------------------------------------------------------

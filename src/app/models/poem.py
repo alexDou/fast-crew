@@ -12,6 +12,7 @@ class Poem(Base):
     id: Mapped[int] = mapped_column("id", autoincrement=True, nullable=False, unique=True, primary_key=True, init=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
     poem_source_id: Mapped[int] = mapped_column(ForeignKey("poem_source.id"), index=True)
+    poet_id: Mapped[int | None] = mapped_column(ForeignKey("poets.id", ondelete="SET NULL"), index=True, default=None)
     poem: Mapped[str | None] = mapped_column(String, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default_factory=lambda: datetime.now(UTC))

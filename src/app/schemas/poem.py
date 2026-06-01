@@ -14,6 +14,7 @@ def sanitize(poem: str) -> str:
 
 class PoemBase(TimestampSchema, BaseModel):
     poem_source_id: int
+    poet_id: int | None = None
     poem: Annotated[str, Field(min_length=2, max_length=6320)]
 
     @field_validator("poem")
@@ -30,6 +31,7 @@ class PoemRead(BaseModel):
 
     user_id: int
     poem_source_id: int
+    poet_id: int | None = None
 
     poem: Annotated[str, Field(min_length=40, max_length=6320)]
 
@@ -47,6 +49,7 @@ class PoemCreateInternal(BaseModel):
 
     user_id: int
     poem_source_id: int
+    poet_id: int | None = None
     poem: Annotated[str, Field(min_length=2, max_length=6320)]
     created_at: datetime
     updated_at: datetime | None = None

@@ -96,14 +96,13 @@ async def save_poem(
     user_id: int,
     poem_source_id: int,
     poem: str,
+    poet_id: int | None = None,
     *,
     commit: bool = True,
 ) -> None:
     """Persist a single poem row for a poem source.
 
-    The poet-based workflow yields exactly one poem per source. ``poet_id``
-    will be wired through in the next migration step (see backend.md §B5);
-    until then the column is unset and rows default to NULL (freestyle).
+    ``poet_id`` is nullable; ``None`` is the freestyle signal.
     """
     from ...crud.crud_poems import crud_poems
     from ...schemas.poem import PoemCreateInternal
@@ -118,6 +117,7 @@ async def save_poem(
     poem_data = PoemCreateInternal(
         user_id=user_id,
         poem_source_id=poem_source_id,
+        poet_id=poet_id,
         poem=poem,
         created_at=now,
         updated_at=None,
