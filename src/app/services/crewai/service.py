@@ -27,6 +27,7 @@ from .prompts import (
     build_generation_context,
     extract_poem_from_result,
     generate_follow_up_questions,
+    generate_poet_candidate_ids,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,7 +153,30 @@ class CrewAIService:
 
             self._raise_if_indistinct(image_analysis)
 
-            questions = generate_follow_up_questions(image_analysis, enhance, openrouter_api_key)
+            active_poets = self._load_active_poets()
+            with ThreadPoolExecutor(max_workers=2) as stage_1_executor:
+                questions_future = stage_1_executor.submit(
+                    generate_follow_up_questions,
+                    image_analysis,
+                    enhance,
+                    openrouter_api_key,
+                )
+                poet_ids_future = stage_1_executor.submit(
+                    generate_poet_candidate_ids,
+                    image_analysis,
+                    active_poets,
+                    openrouter_api_key,
+                    poem_source_id,
+                )
+
+                questions = questions_future.result()
+                try:
+                    poet_ids = poet_ids_future.result()
+                except Exception as exc:
+                    logger.warning("Poet picker failed for source_id=%s: %s", poem_source_id, exc)
+                    poet_ids = []
+
+            poet_candidates = self._load_poet_cards(poet_ids)
             persist_output_artifacts(
                 poem_source_id=poem_source_id, image_analysis=image_analysis
             )
@@ -164,16 +188,17 @@ class CrewAIService:
                     status=PoemSourceStatus.STAGE_1.value,
                     image_analysis=image_analysis,
                     follow_up_questions=questions,
+                    poet_candidates=poet_candidates,
                     error_message=None,
                 )
 
             persistence.run_async(persistence.with_thread_db(persist_stage_1))
-            return {"image_analysis": image_analysis, "questions": questions}
+            return {"image_analysis": image_analysis, "questions": questions, "poet_candidates": poet_candidates}
         except Exception as exc:
             self._persist_stage_failure(
                 poem_source_id=poem_source_id, stage_label="Stage 1", exc=exc
             )
-            return {"image_analysis": "", "questions": []}
+            return {"image_analysis": "", "questions": [], "poet_candidates": []}
         finally:
             self._cleanup_local_image(local_image_path, should_cleanup_local_image)
 
@@ -266,6 +291,46 @@ class CrewAIService:
             raise RuntimeError(INDISTINCT_CONTENT_MESSAGE)
         if normalized.startswith(ERROR_ANALYZING_IMAGE_PREFIX):
             raise RuntimeError(image_analysis)
+
+    @staticmethod
+    def _load_active_poets() -> list[dict[str, Any]]:
+        """Load active poets in the minimal ``{id, name}`` picker shape."""
+
+        async def load(db: AsyncSession) -> list[dict[str, Any]]:
+            from sqlalchemy import select
+
+            from ...models.poet import Poet
+            from ...schemas.poet import PoetSelectorItemSchema
+
+            result = await db.execute(select(Poet).where(Poet.is_active.is_(True)).order_by(Poet.name))
+            return [
+                PoetSelectorItemSchema.model_validate(poet).model_dump()
+                for poet in result.scalars().all()
+            ]
+
+        return persistence.run_async(persistence.with_thread_db(load))
+
+    @staticmethod
+    def _load_poet_cards(poet_ids: list[int]) -> list[dict[str, Any]]:
+        """Load full poet card payloads for picked IDs, preserving picker order."""
+        if not poet_ids:
+            return []
+
+        async def load(db: AsyncSession) -> list[dict[str, Any]]:
+            from sqlalchemy import select
+
+            from ...models.poet import Poet
+            from ...schemas.poet import PoetCardSchema
+
+            result = await db.execute(select(Poet).where(Poet.id.in_(poet_ids), Poet.is_active.is_(True)))
+            poets_by_id = {poet.id: poet for poet in result.scalars().all()}
+            return [
+                PoetCardSchema.model_validate(poets_by_id[poet_id]).model_dump()
+                for poet_id in poet_ids
+                if poet_id in poets_by_id
+            ]
+
+        return persistence.run_async(persistence.with_thread_db(load))
 
     @staticmethod
     def _load_poem_source(poem_source_id: int) -> dict[str, Any] | None:

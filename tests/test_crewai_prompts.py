@@ -1,6 +1,7 @@
 """Tests for the pure helpers in :mod:`app.services.crewai.prompts`."""
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
@@ -8,6 +9,9 @@ from src.app.services.crewai.prompts import (
     build_generation_context,
     extract_poem_from_result,
     extract_text_content,
+    fallback_poet_ids,
+    generate_poet_candidate_ids,
+    normalize_poet_ids,
     normalize_questions,
 )
 
@@ -84,6 +88,50 @@ class TestBuildGenerationContext:
         context = build_generation_context("Some context", [], {"q1": "unused"})
 
         assert context == "Original user context:\nSome context"
+
+
+class TestPoetPickerHelpers:
+    def test_normalize_poet_ids_deduplicates_valid_ids(self) -> None:
+        result = normalize_poet_ids([1, 2, 3, 4, 5, 6, 7, 8, 8], set(range(1, 12)))
+
+        assert result == [1, 2, 3, 4, 5, 6, 7, 8]
+
+    def test_normalize_poet_ids_rejects_unknown_ids(self) -> None:
+        with pytest.raises(RuntimeError, match="unknown poet id"):
+            normalize_poet_ids([1, 2, 3, 4, 5, 6, 7, 999], set(range(1, 12)))
+
+    def test_normalize_poet_ids_rejects_invalid_count_after_dedupe(self) -> None:
+        with pytest.raises(RuntimeError, match="wrong number"):
+            normalize_poet_ids([1, 2, 3, 4, 5, 6, 7], set(range(1, 12)))
+
+    def test_fallback_poet_ids_is_stable_per_source(self) -> None:
+        active_poets = [{"id": poet_id, "name": f"Poet {poet_id}"} for poet_id in range(1, 13)]
+
+        first = fallback_poet_ids(active_poets, poem_source_id=42)
+        second = fallback_poet_ids(active_poets, poem_source_id=42)
+
+        assert first == second
+        assert len(first) == 8
+        assert set(first).issubset(set(range(1, 13)))
+
+    def test_generate_poet_candidate_ids_retries_then_uses_valid_ids(self) -> None:
+        active_poets = [{"id": poet_id, "name": f"Poet {poet_id}"} for poet_id in range(1, 13)]
+
+        with patch("src.app.services.crewai.prompts._request_poet_ids") as mock_request:
+            mock_request.side_effect = [RuntimeError("bad output"), list(range(1, 9))]
+
+            result = generate_poet_candidate_ids("a bright lake", active_poets, "key", 7)
+
+        assert result == list(range(1, 9))
+        assert mock_request.call_count == 2
+
+    def test_generate_poet_candidate_ids_falls_back_after_retry_failure(self) -> None:
+        active_poets = [{"id": poet_id, "name": f"Poet {poet_id}"} for poet_id in range(1, 13)]
+
+        with patch("src.app.services.crewai.prompts._request_poet_ids", side_effect=RuntimeError("bad output")):
+            result = generate_poet_candidate_ids("a bright lake", active_poets, "key", 7)
+
+        assert result == fallback_poet_ids(active_poets, 7)
 
 
 class TestExtractPoemFromResult:
