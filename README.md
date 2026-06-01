@@ -19,6 +19,9 @@ FastAPI that serves a purpose to be a gateway to multiagent AI flows orchestrate
 
 `uv sync`
 
+PostgreSQL must have the `pgvector` extension available before running migrations; the
+poet workflow enables it with `CREATE EXTENSION IF NOT EXISTS vector`.
+
 ### Run
 
 `uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload`
