@@ -1,6 +1,8 @@
 """Unit tests for CrewAI service persistence behavior."""
 
-from unittest.mock import AsyncMock, patch
+import time
+from contextlib import ExitStack
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -9,6 +11,20 @@ from src.app.services.crewai.errors import INDISTINCT_CONTENT_MESSAGE
 from src.app.services.crewai.service import CrewAIService
 from src.app.services.crewai_service import CrewAIService as ReExportedService
 from src.app.services.crewai_service import crewai_service as re_exported_singleton
+
+ACTIVE_POETS = [{"id": 11, "name": "Walt Whitman"}]
+WITH_THREAD_DB_PATH = "src.app.services.crewai.service.persistence.with_thread_db"
+RUN_ASYNC_PATH = "src.app.services.crewai.service.persistence.run_async"
+PICKER_PATH = "src.app.services.crewai.service.generate_poet_candidate_ids"
+
+
+class _FakeImageAnalyzerTool:
+    def __init__(self, api_key: str, model: str) -> None:
+        self.api_key = api_key
+        self.model = model
+
+    def _run(self, image_path: str) -> str:
+        return "A quiet lake under morning light."
 
 
 def test_crewai_service_facade_re_exports_singleton() -> None:
@@ -70,6 +86,134 @@ class TestRaiseIfIndistinct:
     def test_allows_normal_analysis(self) -> None:
         # No exception -> a regular analysis string passes through.
         CrewAIService._raise_if_indistinct("A sunlit valley with a lone oak tree.")
+
+
+class TestStage1Orchestration:
+    def test_persists_questions_and_poet_candidates(self) -> None:
+        service = CrewAIService()
+        poet_cards = [
+            {
+                "id": 11,
+                "name": "Walt Whitman",
+                "era": "19th century",
+                "known_for": "Free verse",
+                "style_markers": ["long line"],
+            }
+        ]
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.load_poets_crew_modules",
+                    return_value=(None, _FakeImageAnalyzerTool, "key"),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.storage_service.prepare_local_media_file",
+                    return_value=("/tmp/image.png", False),
+                )
+            )
+            stack.enter_context(patch.object(service, "_load_active_poets", return_value=ACTIVE_POETS))
+            stack.enter_context(patch.object(service, "_load_poet_cards", return_value=poet_cards))
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.generate_follow_up_questions",
+                    return_value=[{"id": "q1", "text": "What feeling?"}],
+                )
+            )
+            stack.enter_context(patch(PICKER_PATH, return_value=[11]))
+            stack.enter_context(patch("src.app.services.crewai.service.persist_output_artifacts"))
+            stack.enter_context(patch(WITH_THREAD_DB_PATH, new=Mock(return_value=object())))
+            stack.enter_context(patch(RUN_ASYNC_PATH))
+
+            result = service._run_stage_1_sync(7, "media/a.png", 1, None)
+
+        assert result == {
+            "image_analysis": "A quiet lake under morning light.",
+            "questions": [{"id": "q1", "text": "What feeling?"}],
+            "poet_candidates": poet_cards,
+        }
+
+    def test_questions_and_poet_picker_run_in_parallel(self) -> None:
+        service = CrewAIService()
+
+        def _slow_questions(*_args) -> list[dict[str, str]]:
+            time.sleep(0.1)
+            return [{"id": "q1", "text": "What feeling?"}]
+
+        def _slow_picker(*_args) -> list[int]:
+            time.sleep(0.1)
+            return [11]
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.load_poets_crew_modules",
+                    return_value=(None, _FakeImageAnalyzerTool, "key"),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.storage_service.prepare_local_media_file",
+                    return_value=("/tmp/image.png", False),
+                )
+            )
+            stack.enter_context(patch.object(service, "_load_active_poets", return_value=ACTIVE_POETS))
+            stack.enter_context(patch.object(service, "_load_poet_cards", return_value=[]))
+            stack.enter_context(
+                patch("src.app.services.crewai.service.generate_follow_up_questions", side_effect=_slow_questions)
+            )
+            stack.enter_context(patch(PICKER_PATH, side_effect=_slow_picker))
+            stack.enter_context(patch("src.app.services.crewai.service.persist_output_artifacts"))
+            stack.enter_context(patch(WITH_THREAD_DB_PATH, new=Mock(return_value=object())))
+            stack.enter_context(patch(RUN_ASYNC_PATH))
+
+            started_at = time.perf_counter()
+            service._run_stage_1_sync(7, "media/a.png", 1, None)
+            elapsed = time.perf_counter() - started_at
+
+        assert elapsed < 0.18
+
+    def test_poet_picker_failure_keeps_stage_1_successful_with_empty_candidates(self) -> None:
+        service = CrewAIService()
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.load_poets_crew_modules",
+                    return_value=(None, _FakeImageAnalyzerTool, "key"),
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.storage_service.prepare_local_media_file",
+                    return_value=("/tmp/image.png", False),
+                )
+            )
+            stack.enter_context(patch.object(service, "_load_active_poets", return_value=ACTIVE_POETS))
+            mock_load_cards = stack.enter_context(patch.object(service, "_load_poet_cards", return_value=[]))
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.generate_follow_up_questions",
+                    return_value=[{"id": "q1", "text": "What feeling?"}],
+                )
+            )
+            stack.enter_context(
+                patch(
+                    "src.app.services.crewai.service.generate_poet_candidate_ids",
+                    side_effect=RuntimeError("picker down"),
+                )
+            )
+            stack.enter_context(patch("src.app.services.crewai.service.persist_output_artifacts"))
+            stack.enter_context(patch(WITH_THREAD_DB_PATH, new=Mock(return_value=object())))
+            stack.enter_context(patch(RUN_ASYNC_PATH))
+
+            result = service._run_stage_1_sync(7, "media/a.png", 1, None)
+
+        assert result["questions"] == [{"id": "q1", "text": "What feeling?"}]
+        assert result["poet_candidates"] == []
+        mock_load_cards.assert_called_once_with([])
 
 
 class TestCleanupLocalImage:
