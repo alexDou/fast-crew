@@ -18,7 +18,7 @@ class PoetsCrew:
     """PoetsCrew crew"""
 
     POET_DEFAULT_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
-    POET_FALLBACK_MODEL = "openrouter/deepseek/deepseek-v3.2"
+    POET_FALLBACK_MODEL = "deepseek/deepseek-v4-flash"
 
     agents: list[BaseAgent]
     tasks: list[Task]

@@ -14,7 +14,7 @@ from typing import Any
 
 from openai import OpenAI
 
-QUESTION_MODEL = "openrouter/deepseek/deepseek-v3.2"
+QUESTION_MODEL = "deepseek/deepseek-v4-flash"
 POET_PICKER_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
 POET_WRITER_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
