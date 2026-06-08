@@ -197,8 +197,9 @@ class StorageService:
             raise StorageError("S3 client requested while STORAGE_BACKEND is not set to s3")
 
         session_kwargs: dict[str, str] = {}
-        if settings.AWS_PROFILE:
-            session_kwargs["profile_name"] = settings.AWS_PROFILE
+        profile = settings.AWS_PROFILE
+        if profile is not None and profile != "" and profile != "None":
+            session_kwargs["profile_name"] = profile
 
         session = boto3.session.Session(**session_kwargs)
 
@@ -210,12 +211,15 @@ class StorageService:
         if settings.S3_ENDPOINT_URL:
             client_kwargs["endpoint_url"] = settings.S3_ENDPOINT_URL
 
-        if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
-            client_kwargs["aws_access_key_id"] = settings.AWS_ACCESS_KEY_ID
-            client_kwargs["aws_secret_access_key"] = settings.AWS_SECRET_ACCESS_KEY
+        access_key = settings.AWS_ACCESS_KEY_ID
+        secret_key = settings.AWS_SECRET_ACCESS_KEY
+        if access_key is not None and access_key != "" and access_key != "None" and secret_key is not None and secret_key != "" and secret_key != "None":
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
 
-            if settings.AWS_SESSION_TOKEN:
-                client_kwargs["aws_session_token"] = settings.AWS_SESSION_TOKEN
+            session_token = settings.AWS_SESSION_TOKEN
+            if session_token is not None and session_token != "" and session_token != "None":
+                client_kwargs["aws_session_token"] = session_token
 
         self._s3_client = session.client(**client_kwargs)
         return self._s3_client
