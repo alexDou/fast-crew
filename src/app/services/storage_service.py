@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+import os
 import tempfile
 import uuid
 from pathlib import Path
@@ -195,6 +196,18 @@ class StorageService:
 
         if not self.is_s3_backend:
             raise StorageError("S3 client requested while STORAGE_BACKEND is not set to s3")
+
+        # boto3/botocore read AWS_PROFILE and the credential variables straight
+        # from the process environment, bypassing the settings guards below.
+        # Deployment env files sometimes inject the literal string "None" (or an
+        # empty value) for these, which makes botocore look for a profile named
+        # "None"/"" (ProfileNotFound) or use "None" as an access key (403). Strip
+        # those bogus values so the default credential chain (e.g. the EC2
+        # instance role) is used instead.
+        for env_var in ("AWS_PROFILE", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"):
+            value = os.environ.get(env_var)
+            if value is not None and value.strip() in {"", "None"}:
+                del os.environ[env_var]
 
         session_kwargs: dict[str, str] = {}
         profile = settings.AWS_PROFILE
