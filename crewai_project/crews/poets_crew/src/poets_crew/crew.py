@@ -17,7 +17,7 @@ def _get_openrouter_api_key() -> str:
 class PoetsCrew:
     """PoetsCrew crew"""
 
-    POET_DEFAULT_MODEL = "tngtech/deepseek-r1t2-chimera"
+    POET_DEFAULT_MODEL = "deepseek/deepseek-r1"
     POET_FALLBACK_MODEL = "deepseek/deepseek-v4-flash"
 
     agents: list[BaseAgent]
