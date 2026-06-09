@@ -203,8 +203,9 @@ class CrewAIService:
             if not user_id or not image_analysis:
                 raise RuntimeError("Poem source is missing staged workflow data")
 
-            poet_name = self._load_poet_name(poet_id) if poet_id is not None else None
-            if poet_id is not None and poet_name is None:
+            poet_context = self._load_poet_context(poet_id) if poet_id is not None else None
+            poet_name = poet_context.get("name") if poet_context else None
+            if poet_id is not None and not poet_name:
                 raise RuntimeError("Selected poet not found")
             poem_text = generate_stage_2_poem(
                 openrouter_api_key,
@@ -212,6 +213,7 @@ class CrewAIService:
                 questions,
                 answers,
                 poet_name,
+                poet_context,
             )
             persist_output_artifacts(
                 poem_source_id=poem_source_id, image_analysis=image_analysis, poem=poem_text
@@ -309,16 +311,20 @@ class CrewAIService:
         return persistence.run_async(persistence.with_thread_db(load))
 
     @staticmethod
-    def _load_poet_name(poet_id: int) -> str | None:
-        """Load the active poet name used by the Stage 2 prompt."""
+    def _load_poet_context(poet_id: int) -> dict[str, Any] | None:
+        """Load the active poet metadata used by the Stage 2 prompt."""
 
-        async def load(db: AsyncSession) -> str | None:
+        async def load(db: AsyncSession) -> dict[str, Any] | None:
             from sqlalchemy import select
 
             from ...models.poet import Poet
+            from ...schemas.poet import PoetCardSchema
 
-            result = await db.execute(select(Poet.name).where(Poet.id == poet_id, Poet.is_active.is_(True)))
-            return result.scalar_one_or_none()
+            result = await db.execute(select(Poet).where(Poet.id == poet_id, Poet.is_active.is_(True)))
+            poet = result.scalar_one_or_none()
+            if poet is None:
+                return None
+            return PoetCardSchema.model_validate(poet).model_dump()
 
         return persistence.run_async(persistence.with_thread_db(load))
 

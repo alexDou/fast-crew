@@ -6,9 +6,8 @@ Two narrow projections are exported:
   (and what the server persists on ``poem_source.poet_candidates`` so
   URL-resume can rehydrate without re-running the picker).
 * ``PoetSelectorItemSchema`` is the minimal payload that the picker
-  agent receives — only ``id`` + ``name``. Era/known_for/style_markers
-  intentionally never reach the LLM (we want it to draw on its own
-  cultural knowledge per ``staged-workflow-handoff.md`` §5).
+  agent receives — only ``id`` + ``name``. The stage-2 writer may receive
+  the full card payload for the one poet the user selected.
 """
 
 from __future__ import annotations

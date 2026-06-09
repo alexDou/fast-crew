@@ -189,9 +189,7 @@ async def check_poem_source_ready(
         "questions": db_poem_source.get("follow_up_questions") or []
         if status == PoemSourceStatus.STAGE_1.value
         else [],
-        "poet_candidates": db_poem_source.get("poet_candidates") or []
-        if status == PoemSourceStatus.STAGE_1.value
-        else [],
+        "poet_candidates": db_poem_source.get("poet_candidates") or [],
     }
 
 

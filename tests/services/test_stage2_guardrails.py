@@ -18,6 +18,14 @@ def test_clean_poem_output_strips_preamble_and_caps_lines() -> None:
     assert len(cleaned.splitlines()) == 400
 
 
+def test_clean_poem_output_removes_labels_and_notes() -> None:
+    raw = "Title: Window Rain\nline one\nline two\nline three\n\nNote: I used a quiet tone."
+
+    cleaned = clean_poem_output(raw)
+
+    assert cleaned == "Window Rain\nline one\nline two\nline three"
+
+
 def test_poem_is_too_short_counts_non_empty_lines() -> None:
     assert poem_is_too_short("one\n\n two") is True
     assert poem_is_too_short("one\ntwo\nthree") is False

@@ -47,15 +47,19 @@ POET_PICKER_RETRY_PROMPT = (
 POET_WRITER_SYSTEM_PROMPT = (
     "The output must be unmistakably recognizable as the work of {poet_name}. Before composing, silently recall "
     "at least five concrete stylistic signatures of that poet: form (meter, line length, stanza shape), diction "
-    "register, imagery palette, recurring motifs, signature devices. Use them throughout. The poem is original — "
+    "register, imagery palette, recurring motifs, signature devices. Use the supplied poet style context as binding "
+    "guidance and carry those traits throughout. The poem is original — "
     "do not quote or paraphrase known lines; do not name the poet inside the poem. The poem must fit the scene "
     "described and the emotional context in the user's answers. The scene/emotion is the subject; the poet's "
     "voice is the lens. Honor the poet's typical form. Do not default to generic lyric shape. English output only. "
-    "Output only the poem. No preamble, no commentary, no markdown, no title unless the poet typically titled works."
+    "Output exactly the poem text and, if useful, a title as the first line. Do not output prefaces, explanations, "
+    "notes, analysis, epilogues, markdown fences, or labels such as 'Poem:' or 'Title:'."
 )
 FREESTYLE_WRITER_SYSTEM_PROMPT = (
     "Write an original poem grounded in the scene and the user's feelings. You choose form, meter, and length; "
-    "aim for what best fits the mood. Do not imitate any specific named poet. English only. Output only the poem."
+    "aim for what best fits the mood. Do not imitate any specific named poet. English only. Output exactly the poem "
+    "text and, if useful, a title as the first line. Do not output prefaces, explanations, notes, analysis, epilogues, "
+    "markdown fences, or labels such as 'Poem:' or 'Title:'."
 )
 
 
@@ -233,6 +237,7 @@ def build_stage_2_messages(
     questions: list[dict[str, str]] | None,
     answers: dict[str, str] | None,
     poet_name: str | None,
+    poet_context: dict[str, Any] | None = None,
 ) -> tuple[str, str]:
     """Build the locked Stage 2 system/user prompt pair."""
     normalized_poet_name = poet_name.strip() if poet_name else ""
@@ -245,6 +250,20 @@ def build_stage_2_messages(
     prompt_lines: list[str] = []
     if normalized_poet_name:
         prompt_lines.append(f"Poet to replicate: {normalized_poet_name}")
+        if poet_context:
+            known_for = str(poet_context.get("known_for") or "").strip()
+            era = str(poet_context.get("era") or "").strip()
+            style_markers = [
+                str(marker).strip()
+                for marker in poet_context.get("style_markers") or []
+                if str(marker).strip()
+            ]
+            if era:
+                prompt_lines.append(f"Poet era/context: {era}")
+            if known_for:
+                prompt_lines.append(f"Poet is known for: {known_for}")
+            if style_markers:
+                prompt_lines.append("Required style markers to use: " + "; ".join(style_markers))
     prompt_lines.append(f"Scene (from image analysis): {image_analysis}")
     prompt_lines.append("User's feelings and context:")
 
@@ -259,7 +278,10 @@ def build_stage_2_messages(
         if answer.strip()
     ]
     prompt_lines.extend(answer_lines or ["- None provided."])
-    prompt_lines.append("Write the poem now.")
+    prompt_lines.append(
+        "Write the poem now. Return only the title and/or poem text; remove every preface, epilogue, note, "
+        "explanation, analysis, and label."
+    )
     return system_prompt, "\n".join(prompt_lines)
 
 
@@ -268,9 +290,19 @@ def clean_poem_output(poem: str) -> str:
     cleaned = poem.strip()
     cleaned = strip_json_markdown(cleaned)
     cleaned = re.sub(r"^\s*(here is|here's)\b[^\n]*\n+", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^\s*(?:poem|title)\s*:\s*", "", cleaned, flags=re.IGNORECASE)
     lines = cleaned.splitlines()
+    for index, line in enumerate(lines):
+        if re.match(
+            r"^\s*(?:note|notes|explanation|commentary|analysis|epilogue|afterword)\s*:",
+            line,
+            flags=re.IGNORECASE,
+        ):
+            lines = lines[:index]
+            break
     if len(lines) > MAX_POEM_LINES:
-        cleaned = "\n".join(lines[:MAX_POEM_LINES]).rstrip()
+        lines = lines[:MAX_POEM_LINES]
+    cleaned = "\n".join(lines).rstrip()
     return cleaned.strip()
 
 
@@ -307,9 +339,10 @@ def generate_stage_2_poem(
     questions: list[dict[str, str]] | None,
     answers: dict[str, str] | None,
     poet_name: str | None,
+    poet_context: dict[str, Any] | None = None,
 ) -> str:
     """Generate a single poem with one retry for too-short outputs."""
-    system_prompt, user_prompt = build_stage_2_messages(image_analysis, questions, answers, poet_name)
+    system_prompt, user_prompt = build_stage_2_messages(image_analysis, questions, answers, poet_name, poet_context)
     temperature = POET_TEMPERATURE if poet_name else FREESTYLE_TEMPERATURE
     poem = _request_stage_2_poem(
         openrouter_api_key,
