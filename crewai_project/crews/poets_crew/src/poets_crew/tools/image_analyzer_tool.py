@@ -59,7 +59,7 @@ class ImageAnalyzerTool(BaseTool):
     args_schema: type[BaseModel] = ImageAnalyzerInput
 
     api_key: str = Field(..., description="OpenRouter API key")
-    model: str = Field(default="openrouter/google/gemma-3-27b-it:free", description="Vision model to use")
+    model: str = Field(default="google/gemma-3-27b-it:free", description="Vision model to use")
     base_url: str = Field(default="https://openrouter.ai/api/v1", description="OpenRouter base URL")
 
     def _run(self, **kwargs) -> str:

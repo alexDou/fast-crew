@@ -15,8 +15,8 @@ from typing import Any
 from openai import OpenAI
 
 QUESTION_MODEL = "deepseek/deepseek-v4-flash"
-POET_PICKER_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
-POET_WRITER_MODEL = "openrouter/tngtech/deepseek-r1t2-chimera"
+POET_PICKER_MODEL = "tngtech/deepseek-r1t2-chimera"
+POET_WRITER_MODEL = "tngtech/deepseek-r1t2-chimera"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MAX_FOLLOW_UP_QUESTIONS = 3
 MIN_POET_CANDIDATES = 8
