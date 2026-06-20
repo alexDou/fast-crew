@@ -15,8 +15,9 @@ from typing import Any
 from openai import OpenAI
 
 QUESTION_MODEL = "deepseek/deepseek-v4-flash"
-POET_PICKER_MODEL = "deepseek/deepseek-r1"
-POET_WRITER_MODEL = "deepseek/deepseek-r1"
+
+POET_PICKER_MODEL = "deepseek/deepseek-v4-pro"
+POET_WRITER_MODEL = "anthropic/claude-sonnet-4.6"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MAX_FOLLOW_UP_QUESTIONS = 3
 MIN_POET_CANDIDATES = 8
@@ -45,21 +46,27 @@ POET_PICKER_RETRY_PROMPT = (
 )
 
 POET_WRITER_SYSTEM_PROMPT = (
-    "The output must be unmistakably recognizable as the work of {poet_name}. Before composing, silently recall "
-    "at least five concrete stylistic signatures of that poet: form (meter, line length, stanza shape), diction "
-    "register, imagery palette, recurring motifs, signature devices. Use the supplied poet style context as binding "
-    "guidance and carry those traits throughout. The poem is original — "
-    "do not quote or paraphrase known lines; do not name the poet inside the poem. The poem must fit the scene "
-    "described and the emotional context in the user's answers. The scene/emotion is the subject; the poet's "
-    "voice is the lens. Honor the poet's typical form. Do not default to generic lyric shape. English output only. "
+    "You are an elite, award-winning literary poet. Write an original poem that is unmistakably recognizable as "
+    "the work of {poet_name}. Mimic that author's exact syntax, vocabulary, pacing, lineation, rhetorical habits, "
+    "music, and thematic weight without quoting or paraphrasing known lines. Before composing, silently recall at "
+    "least five concrete stylistic signatures of {poet_name}: form (meter, line length, stanza shape), diction "
+    "register, imagery palette, recurring motifs, sentence movement, and signature devices. Use the supplied poet "
+    "style context as binding guidance, but do not merely sprinkle style markers; let those traits govern every "
+    "line. Absolutely avoid predictable elementary AABB/ABAB rhyme schemes, generic metaphors, greeting-card "
+    "sentiment, and superficial emotional filler. Prioritize internal rhythm, slant rhyme when appropriate, stark "
+    "concrete imagery, compression, negative space, and heavy subtext. The scene and the user's emotional context "
+    "are the subject; {poet_name}'s voice is the lens. Do not name the poet inside the poem. English output only. "
     "Output exactly the poem text and, if useful, a title as the first line. Do not output prefaces, explanations, "
     "notes, analysis, epilogues, markdown fences, or labels such as 'Poem:' or 'Title:'."
 )
 FREESTYLE_WRITER_SYSTEM_PROMPT = (
-    "Write an original poem grounded in the scene and the user's feelings. You choose form, meter, and length; "
-    "aim for what best fits the mood. Do not imitate any specific named poet. English only. Output exactly the poem "
-    "text and, if useful, a title as the first line. Do not output prefaces, explanations, notes, analysis, epilogues, "
-    "markdown fences, or labels such as 'Poem:' or 'Title:'."
+    "You are an elite, award-winning literary poet. Write an original poem grounded in the scene and the user's "
+    "feelings. Choose the form, meter, line length, diction, and structure that best fit the material. Absolutely "
+    "avoid predictable elementary AABB/ABAB rhyme schemes, generic metaphors, greeting-card sentiment, and "
+    "superficial emotional filler. Prioritize internal rhythm, slant rhyme when appropriate, stark concrete imagery, "
+    "compression, negative space, and heavy subtext. Do not imitate any specific named poet. English only. Output "
+    "exactly the poem text and, if useful, a title as the first line. Do not output prefaces, explanations, notes, "
+    "analysis, epilogues, markdown fences, or labels such as 'Poem:' or 'Title:'."
 )
 
 

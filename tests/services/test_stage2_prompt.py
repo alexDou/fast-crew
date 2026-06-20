@@ -1,6 +1,10 @@
 """Regression tests for the stage-2 prompt builder (poet vs freestyle branches)."""
 
-from src.app.services.crewai.prompts import build_stage_2_messages
+from src.app.services.crewai.prompts import POET_WRITER_MODEL, build_stage_2_messages
+
+
+def test_uses_deepseek_v4_pro_for_poem_generation() -> None:
+    assert POET_WRITER_MODEL == "anthropic/claude-sonnet-4.6"
 
 
 def test_builds_poet_branch_with_style_metadata() -> None:
@@ -18,6 +22,8 @@ def test_builds_poet_branch_with_style_metadata() -> None:
 
     combined = system_prompt + "\n" + user_prompt
     assert "unmistakably recognizable" in system_prompt
+    assert "exact syntax, vocabulary, pacing" in system_prompt
+    assert "Absolutely avoid predictable elementary AABB/ABAB rhyme schemes" in system_prompt
     assert "Poet to replicate: Emily Dickinson" in user_prompt
     assert "American Romanticism" in user_prompt
     assert "short hymn-like stanzas; slant rhyme; em dashes" in user_prompt

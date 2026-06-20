@@ -32,6 +32,7 @@ class PoemRead(BaseModel):
     user_id: int
     poem_source_id: int
     poet_id: int | None = None
+    poet_name: str | None = None
 
     poem: Annotated[str, Field(min_length=40, max_length=6320)]
 

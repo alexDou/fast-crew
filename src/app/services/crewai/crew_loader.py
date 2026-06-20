@@ -60,9 +60,8 @@ def resolve_crewai_root() -> tuple[str, str]:
 def load_poets_crew_modules() -> CrewAIModules:
     """Import ``ImageAnalyzerTool`` fresh for stage-1 image analysis.
 
-    The crew package reads YAML config with relative paths, so we temporarily
-    ``chdir`` into the crew root. Stale module state is cleared first so
-    repeated stage-1 jobs do not reuse stale imports.
+    Stale module state is cleared first so repeated stage-1 jobs do not reuse
+    stale imports from the mounted crew package.
 
     Returns the tool class plus the resolved OpenRouter API key so the caller
     can share it with the question-generation and poet-picker prompts.

@@ -2,6 +2,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
 from fastcrud import PaginatedListResponse, compute_offset, paginated_response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...api.dependencies import get_current_superuser, get_current_user
@@ -9,9 +10,29 @@ from ...core.db.database import async_get_db
 from ...core.exceptions.http_exceptions import ForbiddenException, NotFoundException
 from ...core.utils.cache import cache
 from ...crud.crud_poems import crud_poems
+from ...models.poet import Poet
 from ...schemas.poem import PoemCreate, PoemCreateInternal, PoemRead, PoemUpdate
 
 router = APIRouter(tags=["poems"])
+
+
+async def _attach_poet_names(db: AsyncSession, poems: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    poet_ids = {poem.get("poet_id") for poem in poems if poem.get("poet_id") is not None}
+    if not poet_ids:
+        return poems
+
+    result = await db.execute(select(Poet.id, Poet.name).where(Poet.id.in_(poet_ids)))
+    poet_names_by_id: dict[int, str] = {}
+    for poet_id, poet_name in result.all():
+        poet_names_by_id[poet_id] = poet_name
+
+    poems_with_poet_names: list[dict[str, Any]] = []
+    for poem in poems:
+        poet_id = poem.get("poet_id")
+        poet_name = poet_names_by_id.get(poet_id) if isinstance(poet_id, int) else None
+        poems_with_poet_names.append({**poem, "poet_name": poet_name})
+
+    return poems_with_poet_names
 
 
 @router.post("/poem", response_model=PoemRead, status_code=201)
@@ -62,6 +83,7 @@ async def read_poems(
     )
 
     response: dict[str, Any] = paginated_response(crud_data=poems_data, page=page, items_per_page=items_per_page)
+    response["data"] = await _attach_poet_names(db, response.get("data", []))
     return response
 
 
@@ -82,7 +104,7 @@ async def read_poem(
     if db_poem is None:
         raise NotFoundException("Poem not found")
 
-    return db_poem
+    return (await _attach_poet_names(db, [db_poem]))[0]
 
 
 @router.patch("/poem/{id}")
