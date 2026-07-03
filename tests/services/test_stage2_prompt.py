@@ -4,7 +4,7 @@ from src.app.services.crewai.prompts import POET_WRITER_MODEL, build_stage_2_mes
 
 
 def test_uses_deepseek_v4_pro_for_poem_generation() -> None:
-    assert POET_WRITER_MODEL == "z-ai/glm-5.2"
+    assert POET_WRITER_MODEL == "anthropic/claude-sonnet-4.6"
 
 
 def test_builds_poet_branch_with_style_metadata() -> None:
