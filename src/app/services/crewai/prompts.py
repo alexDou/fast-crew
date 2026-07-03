@@ -17,7 +17,7 @@ from openai import OpenAI
 QUESTION_MODEL = "deepseek/deepseek-v4-flash"
 
 POET_PICKER_MODEL = "deepseek/deepseek-v4-pro"
-POET_WRITER_MODEL = "moonshotai/kimi-k2.6"
+POET_WRITER_MODEL = "z-ai/glm-5.2"
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MAX_FOLLOW_UP_QUESTIONS = 3
 MIN_POET_CANDIDATES = 8
