@@ -4,7 +4,7 @@ from src.app.services.crewai.prompts import POET_WRITER_MODEL, build_stage_2_mes
 
 
 def test_uses_deepseek_v4_pro_for_poem_generation() -> None:
-    assert POET_WRITER_MODEL == "tngtech/deepseek-r1t2-chimera"
+    assert POET_WRITER_MODEL == "moonshotai/kimi-k2.6"
 
 
 def test_builds_poet_branch_with_style_metadata() -> None:
